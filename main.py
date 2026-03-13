@@ -1,10 +1,11 @@
 import asyncio
 import sqlite3
-from aiogram import Bot, Dispatcher, F types
+from aiogram import Bot, Dispatcher, F, types  # ВОТ ТУТ ОШИБКА БЫЛА
 from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
+
 
 TOKEN = "8522948833:AAFPgQz77GDY2YafZRtNMM9ilcxZ65_2wus"
 ADMIN_ID = 1471307057
