@@ -6,7 +6,6 @@ from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
 
-# --- КОНФИГ ---
 TOKEN = "8522948833:AAFPgQz77GDY2YafZRtNMM9ilcxZ65_2wus"
 ADMIN_ID = 1471307057
 CARD = "4441111008011946"
@@ -21,7 +20,7 @@ IMG_PRODUCT = "https://files.catbox.moe/eqco0i.png"
 bot = Bot(token=TOKEN)
 dp = Dispatcher()
 
-# --- SQLite БАЗА ---
+# БД
 conn = sqlite3.connect('users.db', check_same_thread=False)
 cursor = conn.cursor()
 cursor.execute('CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY)')
@@ -38,63 +37,76 @@ def main_kb():
         [InlineKeyboardButton(text="🆘 Поддержка", url="https://t.me/IllyaGarant")]
     ])
 
-def tariffs_kb():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="7 дней - 150 грн", callback_data="pay_7")],
-        [InlineKeyboardButton(text="30 дней - 300 грн", callback_data="pay_30")],
-        [InlineKeyboardButton(text="90 дней - 700 грн", callback_data="pay_90")],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy_key")]
-    ])
-
 # --- ХЕНДЛЕРЫ ---
 @dp.message(Command("start"))
-async def start(message: types.Message):
-    cursor.execute('INSERT OR IGNORE INTO users VALUES (?)', (message.from_user.id,))
+@dp.callback_query(F.data == "start")
+async def start(event: types.Message | types.CallbackQuery):
+    user_id = event.from_user.id
+    cursor.execute('INSERT OR IGNORE INTO users VALUES (?)', (user_id,))
     conn.commit()
-    await message.answer_photo(photo=IMG_MAIN, caption="Welcome to Plut.", reply_markup=main_kb())
+    
+    text = "<b>Welcome to Plut.</b>\nВыберите действие:"
+    if isinstance(event, types.CallbackQuery):
+        await event.message.edit_media(media=InputMediaPhoto(media=IMG_MAIN, caption=text, parse_mode="HTML"), reply_markup=main_kb())
+    else:
+        await event.answer_photo(photo=IMG_MAIN, caption=text, reply_markup=main_kb(), parse_mode="HTML")
+
+@dp.callback_query(F.data == "profile")
+async def show_profile(call: types.CallbackQuery):
+    text = f"👤 <b>Профиль</b>\nID: <code>{call.from_user.id}</code>\nСтатус: Покупатель"
+    await call.message.edit_media(media=InputMediaPhoto(media=IMG_MAIN, caption=text, parse_mode="HTML"), reply_markup=main_kb())
+
+@dp.callback_query(F.data == "reviews")
+async def show_reviews(call: types.CallbackQuery):
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="➡️ Перейти в канал", url="https://t.me/plutoniumrewiews")], [InlineKeyboardButton(text="⬅️ Назад", callback_data="start")]])
+    await call.message.edit_media(media=InputMediaPhoto(media=IMG_REVIEWS, caption="⭐️ Отзывы наших клиентов:"), reply_markup=kb)
 
 @dp.callback_query(F.data == "buy_key")
-async def choose_game(call: types.CallbackQuery):
-    await call.message.edit_media(media=InputMediaPhoto(media=IMG_SO2, caption="Выберите игру:"), 
-                                  reply_markup=InlineKeyboardMarkup(inline_keyboard=[
-                                      [InlineKeyboardButton(text="Standoff 2", callback_data="tariffs")],
-                                      [InlineKeyboardButton(text="⬅️ Назад", callback_data="start")]]))
+async def buy_key(call: types.CallbackQuery):
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Standoff 2", callback_data="so2_menu")], [InlineKeyboardButton(text="⬅️ Назад", callback_data="start")]])
+    await call.message.edit_media(media=InputMediaPhoto(media=IMG_SO2, caption="🎮 Выберите игру:"), reply_markup=kb)
 
-@dp.callback_query(F.data == "tariffs")
-async def show_tariffs(call: types.CallbackQuery):
-    await call.message.edit_media(media=InputMediaPhoto(media=IMG_NONROOT, caption="Выберите тариф:"), reply_markup=tariffs_kb())
+@dp.callback_query(F.data == "so2_menu")
+async def so2_menu(call: types.CallbackQuery):
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="Non Root", callback_data="nonroot_menu")], [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy_key")]])
+    await call.message.edit_media(media=InputMediaPhoto(media=IMG_SO2, caption="📱 Выберите тип установки:"), reply_markup=kb)
+
+@dp.callback_query(F.data == "nonroot_menu")
+async def nonroot_menu(call: types.CallbackQuery):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="Plutonium - 7 days", callback_data="pay_7")],
+        [InlineKeyboardButton(text="Plutonium - 30 days", callback_data="pay_30")],
+        [InlineKeyboardButton(text="Plutonium - 90 days", callback_data="pay_90")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="so2_menu")]
+    ])
+    await call.message.edit_media(media=InputMediaPhoto(media=IMG_NONROOT, caption="💎 Выберите тариф:"), reply_markup=kb)
 
 @dp.callback_query(F.data.startswith("pay_"))
-async def process_pay(call: types.CallbackQuery, state: FSMContext):
-    price = {"pay_7": "150", "pay_30": "300", "pay_90": "700"}[call.data]
-    days = {"pay_7": "7", "pay_30": "30", "pay_90": "90"}[call.data]
-    await state.update_data(days=days, price=price)
+async def pay_menu(call: types.CallbackQuery, state: FSMContext):
+    data = {"pay_7": ("Plutonium - 7 days", "150"), "pay_30": ("Plutonium - 30 days", "300"), "pay_90": ("Plutonium - 90 days", "700")}
+    item, price = data[call.data]
+    await state.update_data(item=item, price=price)
     
-    text = (f"💳 <b>Оплата на карту:</b>\n<code>{CARD}</code>\n"
-            f"Сумма: {price} грн\n❗️Комментарий: За цифрові товари\n\n"
-            "После оплаты скиньте фото чека:")
-    await call.message.edit_caption(caption=text, reply_markup=None, parse_mode="HTML")
+    text = (f"💳 <b>Оплата: {item}</b>\nЦена: {price} грн\n\n"
+            f"Реквизиты: <code>{CARD}</code>\n"
+            "❗️Комментарий: За цифрові товари")
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Я оплатил (скинуть чек)", callback_data="send_receipt")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="start")]
+    ])
+    await call.message.edit_media(media=InputMediaPhoto(media=IMG_PRODUCT, caption=text, parse_mode="HTML"), reply_markup=kb)
+
+@dp.callback_query(F.data == "send_receipt")
+async def request_receipt(call: types.CallbackQuery, state: FSMContext):
+    await call.message.answer("📸 Отправьте фото вашего чека (скриншот) прямо сюда:")
     await state.set_state(OrderState.waiting_for_receipt)
 
 @dp.message(OrderState.waiting_for_receipt, F.photo)
 async def get_receipt(message: types.Message, state: FSMContext):
     data = await state.get_data()
-    await message.answer("✅ Чек отправлен на проверку!")
-    await bot.send_photo(ADMIN_ID, message.photo[-1].file_id, 
-                         caption=f"Новый заказ: {data['days']} дней ({data['price']} грн)\nОт: @{message.from_user.username}")
+    await message.answer("✅ Чек получен, админ скоро свяжется с вами!")
+    await bot.send_photo(ADMIN_ID, message.photo[-1].file_id, caption=f"🔔 <b>Новый заказ!</b>\n{data['item']}\nСумма: {data['price']} грн\nЮзер: @{message.from_user.username}")
     await state.clear()
-
-# --- РАССЫЛКА ---
-@dp.message(Command("send_all"))
-async def broadcast(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return
-    text = message.text.replace("/send_all ", "")
-    cursor.execute('SELECT user_id FROM users')
-    users = cursor.fetchall()
-    for row in users:
-        try: await bot.send_message(row[0], text)
-        except: continue
-    await message.answer("Рассылка завершена.")
 
 async def main():
     await dp.start_polling(bot)
