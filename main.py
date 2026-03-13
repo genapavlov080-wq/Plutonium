@@ -7,7 +7,7 @@ from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, Message
 from aiocryptopay import AioCryptoPay, Networks
 
 # --- КОНФИГ ---
-TOKEN = "8222233131:AAF0FMDqGv7dLK1doTa6GrMOHB_nkZBbphk"
+TOKEN = "8522948833:AAFPgQz77GDY2YafZRtNMM9ilcxZ65_2wus"
 ADMIN_ID = 1471307057
 CRYPTO_TOKEN = "338748:AAcBI08cRpvDBk6mb9V2hPo3zRX0miDxdyc"
 CARD_REQUISITES = "4441111008011946"
