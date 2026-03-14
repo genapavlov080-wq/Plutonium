@@ -471,10 +471,10 @@ async def admin_key_input(message: types.Message, state: FSMContext):
             else:
                 await bot.send_document(target_id, data['file'], caption=success_text)
                 await bot.send_message(target_id, f"🔑 <b>Ваш ключ:</b> <code>{message.text}</code>")
-        else:
-            await bot.send_message(target_id, success_text + f"🔑 <b>Ваш ключ:</b> <code>{message.text}</code>")
-        else:
-            await bot.send_message(target_id, success_text + f"🔑 <b>Ваш ключ:</b> <code>{message.text}</code>")
+            else:
+                await bot.send_message(target_id, success_text + f"🔑 <b>Ваш ключ:</b> <code>{message.text}</code>")
+            else:
+                await bot.send_message(target_id, success_text + f"🔑 <b>Ваш ключ:</b> <code>{message.text}</code>")
         
         await message.answer("✅ Готово! Подписка активирована и сохранена в базе.")
     except Exception as e:
