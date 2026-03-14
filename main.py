@@ -24,7 +24,7 @@ cursor.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value
 cursor.execute('INSERT OR IGNORE INTO settings VALUES ("cheat_status", "🟢 UNDETECTED")')
 conn.commit()
 
-# --- СОСТОЯНИЯ (FSM) ---
+# --- СОСТОЯНИЯ ---
 class OrderState(StatesGroup):
     waiting_for_receipt = State()
     waiting_for_admin_file = State()
@@ -154,18 +154,18 @@ async def adm_cb(call: types.CallbackQuery, state: FSMContext):
     if parts[1] == "ok":
         await state.update_data(target_id=parts[2], days=parts[3])
         await call.message.answer("Введите ФАЙЛ:")
-        await state.set_state(OrderState.admin_input_file)
+        await state.set_state(OrderState.waiting_for_admin_file)
     else:
         await bot.send_message(parts[2], "❌ Оплата отклонена.")
         await call.message.delete()
 
-@dp.message(OrderState.admin_input_file)
+@dp.message(OrderState.waiting_for_admin_file)
 async def admin_file(message: types.Message, state: FSMContext):
     await state.update_data(file=message.document.file_id if message.document else message.text)
     await message.answer("Введите КЛЮЧ:")
-    await state.set_state(OrderState.admin_input_key)
+    await state.set_state(OrderState.waiting_for_admin_key)
 
-@dp.message(OrderState.admin_input_key)
+@dp.message(OrderState.waiting_for_admin_key)
 async def admin_key(message: types.Message, state: FSMContext):
     data = await state.get_data()
     expiry = (datetime.now() + timedelta(days=int(data['days']))).strftime('%Y-%m-%d %H:%M:%S')
@@ -203,3 +203,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+                              
