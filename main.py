@@ -20,20 +20,21 @@ dp = Dispatcher()
 conn = sqlite3.connect('users.db', check_same_thread=False)
 cursor = conn.cursor()
 
-# Таблица пользователей с подписками
+# Таблица пользователей
 cursor.execute('''
     CREATE TABLE IF NOT EXISTS users (
         user_id INTEGER PRIMARY KEY,
         expiry_date TEXT,
         product_name TEXT,
-        subscribed_at TEXT
+        subscribed_at TEXT,
+        banned INTEGER DEFAULT 0,
+        ban_reason TEXT
     )
 ''')
 
 # Таблица настроек
 cursor.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)')
 cursor.execute('INSERT OR IGNORE INTO settings VALUES ("cheat_status", "🟢 UNDETECTED")')
-cursor.execute('INSERT OR IGNORE INTO settings VALUES ("total_users", "0")')
 conn.commit()
 
 # --- ВСЕ СОСТОЯНИЯ ---
@@ -42,6 +43,7 @@ class OrderState(StatesGroup):
     waiting_for_admin_file = State()
     waiting_for_admin_key = State()
     broadcast_text = State()
+    ban_reason = State()
 
 # --- КЛАВИАТУРЫ ---
 def get_main_keyboard():
@@ -52,6 +54,14 @@ def get_main_keyboard():
     ])
     return kb
 
+# --- ПРОВЕРКА БАНА ---
+async def check_ban(user_id):
+    cursor.execute('SELECT banned, ban_reason FROM users WHERE user_id = ?', (user_id,))
+    res = cursor.fetchone()
+    if res and res[0] == 1:
+        return True, res[1]
+    return False, None
+
 # --- ХЕНДЛЕРЫ ---
 
 @dp.message(Command("start"))
@@ -59,7 +69,12 @@ async def start_command(message: types.Message, state: FSMContext):
     await state.clear()
     user_id = int(message.from_user.id)
     
-    # Добавляем пользователя если его нет
+    # Проверяем бан
+    banned, reason = await check_ban(user_id)
+    if banned:
+        await message.answer(f"⛔️ <b>Вы заблокированы</b>\nПричина: {reason}")
+        return
+    
     cursor.execute('INSERT OR IGNORE INTO users (user_id, subscribed_at) VALUES (?, ?)', 
                   (user_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
     conn.commit()
@@ -73,6 +88,13 @@ async def start_command(message: types.Message, state: FSMContext):
 async def start_callback(call: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await call.answer()
+    
+    # Проверяем бан
+    banned, reason = await check_ban(call.from_user.id)
+    if banned:
+        await call.message.edit_text(f"⛔️ <b>Вы заблокированы</b>\nПричина: {reason}")
+        return
+    
     cursor.execute('SELECT value FROM settings WHERE key="cheat_status"')
     status = cursor.fetchone()[0]
     caption = f"🔥 <b>Plutonium Store — Официальный дистрибьютор</b>\n\n📈 Статус ПО: {status}\n\nДобро пожаловать в наш магазин."
@@ -90,6 +112,13 @@ async def check_status(call: types.CallbackQuery):
 async def profile_callback(call: types.CallbackQuery):
     await call.answer()
     user_id = int(call.from_user.id)
+    
+    # Проверяем бан
+    banned, reason = await check_ban(user_id)
+    if banned:
+        await call.message.edit_text(f"⛔️ <b>Вы заблокированы</b>\nПричина: {reason}")
+        return
+    
     cursor.execute('SELECT expiry_date, product_name FROM users WHERE user_id = ?', (user_id,))
     res = cursor.fetchone()
     
@@ -108,7 +137,6 @@ async def profile_callback(call: types.CallbackQuery):
                 product = res[1] if res[1] else "Plutonium"
             else:
                 time_left = "Истекла"
-                # Можно автоматически очистить истекшую подписку
                 cursor.execute('UPDATE users SET expiry_date = NULL, product_name = NULL WHERE user_id = ?', (user_id,))
                 conn.commit()
         except Exception as e:
@@ -179,17 +207,52 @@ async def pay_callback(call: types.CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data == "send_receipt")
 async def receipt_callback(call: types.CallbackQuery, state: FSMContext):
     await call.answer()
-    await call.message.answer("📸 <b>Отправьте скриншот чека одним сообщением:</b>")
+    await call.message.answer("📸 <b>Отправьте скриншот чека</b> (можно фото, документ или скриншот):")
     await state.set_state(OrderState.waiting_for_receipt)
 
-@dp.message(OrderState.waiting_for_receipt, F.photo)
+# ===== ИСПРАВЛЕННЫЙ ПРИЕМ ЧЕКОВ =====
+@dp.message(OrderState.waiting_for_receipt)
 async def handle_receipt(message: types.Message, state: FSMContext):
     data = await state.get_data()
+    
+    # Определяем тип медиа и получаем file_id
+    file_id = None
+    file_type = None
+    
+    if message.photo:
+        file_id = message.photo[-1].file_id
+        file_type = "photo"
+    elif message.document:
+        # Проверяем, что документ - это изображение
+        if message.document.mime_type and message.document.mime_type.startswith('image/'):
+            file_id = message.document.file_id
+            file_type = "document"
+        else:
+            await message.answer("❌ Пожалуйста, отправьте скриншот чека (изображение)")
+            return
+    elif message.video:
+        # Видео тоже можно как чек (но редко)
+        file_id = message.video.file_id
+        file_type = "video"
+    else:
+        await message.answer("❌ Пожалуйста, отправьте скриншот чека (фото или документ)")
+        return
+    
     adm_kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="✅ Одобрить", callback_data=f"adm_ok_{message.from_user.id}_{data['days']}")],
         [InlineKeyboardButton(text="❌ Отклонить", callback_data=f"adm_no_{message.from_user.id}")]
     ])
-    await bot.send_photo(ADMIN_ID, message.photo[-1].file_id, caption=f"🔔 <b>Чек от пользователя:</b> {message.from_user.id}\nТариф: {data['days']} дней", reply_markup=adm_kb)
+    
+    caption = f"🔔 <b>Чек от пользователя:</b> {message.from_user.id}\nТариф: {data['days']} дней"
+    
+    # Отправляем админу в зависимости от типа
+    if file_type == "photo":
+        await bot.send_photo(ADMIN_ID, file_id, caption=caption, reply_markup=adm_kb)
+    elif file_type == "document":
+        await bot.send_document(ADMIN_ID, file_id, caption=caption, reply_markup=adm_kb)
+    elif file_type == "video":
+        await bot.send_video(ADMIN_ID, file_id, caption=caption, reply_markup=adm_kb)
+    
     await message.answer("✅ Чек успешно отправлен администратору! Ожидайте подтверждения.")
     await state.clear()
 
@@ -238,31 +301,124 @@ async def admin_key_input(message: types.Message, state: FSMContext):
     target_id = int(data['target_id'])
     days = int(data['days'])
     
-    # Вычисляем дату окончания подписки
     expiry_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
     
-    # Сохраняем подписку в базу данных
+    # Снимаем бан если был и добавляем подписку
     cursor.execute('''
-        INSERT OR REPLACE INTO users (user_id, expiry_date, product_name, subscribed_at) 
-        VALUES (?, ?, ?, COALESCE((SELECT subscribed_at FROM users WHERE user_id = ?), ?))
+        INSERT OR REPLACE INTO users (user_id, expiry_date, product_name, subscribed_at, banned) 
+        VALUES (?, ?, ?, COALESCE((SELECT subscribed_at FROM users WHERE user_id = ?), ?), 0)
     ''', (target_id, expiry_date, "Plutonium", target_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
     conn.commit()
     
     # Формируем сообщение пользователю
     success_text = f"💎 <b>Ваш заказ успешно активирован!</b>\n\n📅 <b>Подписка действует до:</b> {expiry_date}\n\n"
     
-    if data.get('file'):
-        if data['file_text']:
-            await bot.send_message(target_id, success_text + f"📝 <b>Инструкция:</b>\n{data['file_text']}")
-            await bot.send_message(target_id, f"🔑 <b>Ваш ключ:</b> <code>{message.text}</code>")
+    try:
+        if data.get('file'):
+            if data['file_text']:
+                await bot.send_message(target_id, success_text + f"📝 <b>Инструкция:</b>\n{data['file_text']}")
+                await bot.send_message(target_id, f"🔑 <b>Ваш ключ:</b> <code>{message.text}</code>")
+            else:
+                await bot.send_document(target_id, data['file'], caption=success_text)
+                await bot.send_message(target_id, f"🔑 <b>Ваш ключ:</b> <code>{message.text}</code>")
         else:
-            await bot.send_document(target_id, data['file'], caption=success_text)
-            await bot.send_message(target_id, f"🔑 <b>Ваш ключ:</b> <code>{message.text}</code>")
-    else:
-        await bot.send_message(target_id, success_text + f"🔑 <b>Ваш ключ:</b> <code>{message.text}</code>")
+            await bot.send_message(target_id, success_text + f"🔑 <b>Ваш ключ:</b> <code>{message.text}</code>")
+        
+        await message.answer("✅ Готово! Подписка активирована и сохранена в базе.")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка при отправке пользователю: {e}")
     
-    await message.answer("✅ Готово! Подписка активирована и сохранена в базе.")
     await state.clear()
+
+# ===== НОВЫЕ АДМИН-КОМАНДЫ =====
+
+@dp.message(Command("ban"))
+async def ban_user(message: types.Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        await message.answer("❌ Использование: /ban [user_id] [причина]")
+        return
+    
+    parts = args[1].split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer("❌ Укажите причину бана")
+        return
+    
+    target_id = int(parts[0])
+    reason = parts[1]
+    
+    cursor.execute('UPDATE users SET banned = 1, ban_reason = ? WHERE user_id = ?', (reason, target_id))
+    conn.commit()
+    
+    try:
+        await bot.send_message(target_id, f"⛔️ <b>Вы заблокированы</b>\nПричина: {reason}")
+    except:
+        pass
+    
+    await message.answer(f"✅ Пользователь {target_id} заблокирован\nПричина: {reason}")
+
+@dp.message(Command("unban"))
+async def unban_user(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    args = message.text.split()
+    if len(args) < 2:
+        await message.answer("❌ Использование: /unban [user_id]")
+        return
+    
+    target_id = int(args[1])
+    
+    cursor.execute('UPDATE users SET banned = 0, ban_reason = NULL WHERE user_id = ?', (target_id,))
+    conn.commit()
+    
+    try:
+        await bot.send_message(target_id, f"✅ <b>Вы разблокированы</b>\nМожете снова пользоваться ботом.")
+    except:
+        pass
+    
+    await message.answer(f"✅ Пользователь {target_id} разблокирован")
+
+@dp.message(Command("revoke"))
+async def revoke_subscription(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        await message.answer("❌ Использование: /revoke [user_id] [причина]")
+        return
+    
+    parts = args[1].split(maxsplit=1)
+    if len(parts) < 2:
+        await message.answer("❌ Укажите причину аннулирования")
+        return
+    
+    target_id = int(parts[0])
+    reason = parts[1]
+    
+    # Баним и удаляем подписку
+    cursor.execute('''
+        UPDATE users 
+        SET banned = 1, 
+            ban_reason = ?, 
+            expiry_date = NULL, 
+            product_name = NULL 
+        WHERE user_id = ?
+    ''', (reason, target_id))
+    conn.commit()
+    
+    try:
+        await bot.send_message(target_id, f"⛔️ <b>Подписка аннулирована</b>\nПричина: {reason}")
+    except:
+        pass
+    
+    await message.answer(f"✅ Подписка пользователя {target_id} аннулирована\nПричина: {reason}")
+
+# ===== ОСТАЛЬНЫЕ КОМАНДЫ =====
 
 @dp.message(Command("set_status"))
 async def set_status(message: types.Message):
@@ -289,7 +445,7 @@ async def broadcast_send(message: types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
     
-    cursor.execute('SELECT user_id FROM users')
+    cursor.execute('SELECT user_id FROM users WHERE banned = 0')
     users = cursor.fetchall()
     
     if not users:
@@ -328,11 +484,19 @@ async def users_count(message: types.Message):
     cursor.execute('SELECT COUNT(*) FROM users')
     total = cursor.fetchone()[0]
     
+    cursor.execute('SELECT COUNT(*) FROM users WHERE banned = 1')
+    banned = cursor.fetchone()[0]
+    
     cursor.execute('SELECT COUNT(*) FROM users WHERE expiry_date IS NOT NULL AND expiry_date > ?', 
                   (datetime.now().strftime('%Y-%m-%d %H:%M:%S'),))
     active = cursor.fetchone()[0]
     
-    await message.answer(f"👥 Всего пользователей: {total}\n✅ С активной подпиской: {active}")
+    await message.answer(
+        f"👥 <b>Статистика пользователей:</b>\n\n"
+        f"📊 Всего: {total}\n"
+        f"✅ С подпиской: {active}\n"
+        f"⛔ Заблокировано: {banned}"
+    )
 
 @dp.message(Command("status"))
 async def get_status(message: types.Message):
@@ -340,28 +504,11 @@ async def get_status(message: types.Message):
     status = cursor.fetchone()[0]
     await message.answer(f"📊 Текущий статус: {status}")
 
-@dp.message(Command("check_subs"))
-async def check_subs(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    
-    cursor.execute('SELECT user_id, expiry_date, product_name FROM users WHERE expiry_date IS NOT NULL')
-    subs = cursor.fetchall()
-    
-    if not subs:
-        await message.answer("📭 Нет активных подписок")
-        return
-    
-    text = "📋 <b>Активные подписки:</b>\n\n"
-    for uid, exp, prod in subs[:10]:  # показываем только первые 10
-        text += f"👤 ID: <code>{uid}</code>\n📦 {prod}\n📅 до: {exp}\n\n"
-    
-    await message.answer(text)
-
 async def main():
     print("🚀 Бот запущен!")
     print(f"👑 Админ ID: {ADMIN_ID}")
     print("✅ Подписки сохраняются в базе данных")
+    print("✅ Команды: /ban, /unban, /revoke, /broadcast, /set_status, /users")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
