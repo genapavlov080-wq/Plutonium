@@ -61,6 +61,14 @@ async def start_callback(call: types.CallbackQuery, state: FSMContext):
     caption = f"🔥 <b>Plutonium Store — Официальный дистрибьютор</b>\n\n📈 Статус ПО: {status}\n\nДобро пожаловать в наш магазин."
     await call.message.edit_media(media=InputMediaPhoto(media="https://files.catbox.moe/916cwt.png", caption=caption), reply_markup=get_main_keyboard())
 
+@dp.callback_query(F.data == "check_status")
+async def check_status(call: types.CallbackQuery):
+    await call.answer()
+    cursor.execute('SELECT value FROM settings WHERE key="cheat_status"')
+    status = cursor.fetchone()[0]
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data="start")]])
+    await call.message.edit_media(media=InputMediaPhoto(media="https://files.catbox.moe/916cwt.png", caption=f"📊 <b>Текущий статус ПО:</b> {status}"), reply_markup=kb)
+
 @dp.callback_query(F.data == "profile")
 async def profile_callback(call: types.CallbackQuery):
     await call.answer()
@@ -156,54 +164,145 @@ async def handle_receipt(message: types.Message, state: FSMContext):
         [InlineKeyboardButton(text="❌ Отклонить", callback_data=f"adm_no_{message.from_user.id}")]
     ])
     await bot.send_photo(ADMIN_ID, message.photo[-1].file_id, caption=f"🔔 <b>Чек от пользователя:</b> {message.from_user.id}\nТариф: {data['days']} дней", reply_markup=adm_kb)
-    await message.answer("✅ Чек успешно отправлен!")
+    await message.answer("✅ Чек успешно отправлен администратору! Ожидайте подтверждения.")
     await state.clear()
 
 @dp.callback_query(F.data.startswith("adm_"))
 async def admin_decision(call: types.CallbackQuery, state: FSMContext):
+    if call.from_user.id != ADMIN_ID:
+        await call.answer("⛔️ Доступ запрещен")
+        return
+    
     parts = call.data.split("_")
     if parts[1] == "ok":
         await state.update_data(target_id=int(parts[2]), days=parts[3])
-        await call.message.answer("Введите ФАЙЛ:")
+        await call.message.answer("📎 <b>Отправьте файл для пользователя:</b>")
         await state.set_state(OrderState.waiting_for_admin_file)
+        await call.answer("✅ Одобрено")
     else:
-        await bot.send_message(int(parts[2]), "❌ Ваша оплата была отклонена.")
+        await bot.send_message(int(parts[2]), "❌ Ваша оплата была отклонена администратором.")
         await call.message.delete()
+        await call.answer("❌ Отклонено")
 
 @dp.message(OrderState.waiting_for_admin_file)
 async def admin_file_input(message: types.Message, state: FSMContext):
-    await state.update_data(file=message.document.file_id if message.document else message.text)
-    await message.answer("Введите КЛЮЧ:")
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    file_id = None
+    file_text = None
+    
+    if message.document:
+        file_id = message.document.file_id
+    elif message.photo:
+        file_id = message.photo[-1].file_id
+    else:
+        file_text = message.text
+    
+    await state.update_data(file=file_id, file_text=file_text)
+    await message.answer("🔑 <b>Введите ключ для пользователя:</b>")
     await state.set_state(OrderState.waiting_for_admin_key)
 
 @dp.message(OrderState.waiting_for_admin_key)
 async def admin_key_input(message: types.Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
     data = await state.get_data()
     expiry = (datetime.now() + timedelta(days=int(data['days']))).strftime('%Y-%m-%d %H:%M:%S')
     target_id = int(data['target_id'])
     
-    cursor.execute('INSERT OR REPLACE INTO users (user_id, expiry_date, product_name) VALUES (?, ?, ?)', (target_id, expiry, "Plutonium"))
+    cursor.execute('INSERT OR REPLACE INTO users (user_id, expiry_date, product_name) VALUES (?, ?, ?)', 
+                  (target_id, expiry, "Plutonium"))
     conn.commit()
     
-    success_text = (f"💎 <b>Ваш заказ успешно активирован!</b>\n\n"
-                    f"📂 <b>Ваш файл:</b> {data['file']}\n"
-                    f"🔑 <b>Ваш ключ:</b> <code>{message.text}</code>\n\n"
-                    f"Благодарим за покупку в Plutonium Store!")
+    # Формируем сообщение пользователю
+    if data.get('file'):
+        if data['file_text']:
+            await bot.send_message(target_id, f"💎 <b>Ваш заказ успешно активирован!</b>\n\n🔑 <b>Ключ:</b> <code>{message.text}</code>\n\n📝 <b>Инструкция:</b>\n{data['file_text']}")
+        else:
+            await bot.send_document(target_id, data['file'], caption=f"💎 <b>Ваш заказ успешно активирован!</b>\n\n🔑 <b>Ключ:</b> <code>{message.text}</code>")
+    else:
+        await bot.send_message(target_id, f"💎 <b>Ваш заказ успешно активирован!</b>\n\n🔑 <b>Ключ:</b> <code>{message.text}</code>")
     
-    await bot.send_message(target_id, success_text)
-    await message.answer("✅ Успешно выдано пользователю.")
+    await message.answer("✅ Готово! Товар выдан пользователю.")
     await state.clear()
 
 @dp.message(Command("set_status"))
 async def set_status(message: types.Message):
-    if message.from_user.id != ADMIN_ID: return
-    cursor.execute('UPDATE settings SET value = ? WHERE key = "cheat_status"', (message.text.replace("/set_status ", ""),))
+    if message.from_user.id != ADMIN_ID: 
+        await message.answer("⛔️ Доступ запрещен")
+        return
+    
+    new_status = message.text.replace("/set_status ", "").strip()
+    cursor.execute('UPDATE settings SET value = ? WHERE key = "cheat_status"', (new_status,))
     conn.commit()
-    await message.answer("✅ Статус обновлен.")
+    await message.answer(f"✅ Статус обновлен на: {new_status}")
+
+@dp.message(Command("broadcast"))
+async def broadcast_start(message: types.Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        await message.answer("⛔️ Доступ запрещен")
+        return
+    
+    await message.answer("📢 <b>Отправь сообщение для рассылки всем пользователям</b>\n(текст, фото, видео или документ)")
+    await state.set_state(OrderState.broadcast_text)
+
+@dp.message(OrderState.broadcast_text)
+async def broadcast_send(message: types.Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    cursor.execute('SELECT user_id FROM users')
+    users = cursor.fetchall()
+    
+    if not users:
+        await message.answer("📭 Нет пользователей в базе")
+        await state.clear()
+        return
+    
+    success = 0
+    fail = 0
+    
+    status_msg = await message.answer(f"⏳ Начинаю рассылку {len(users)} пользователям...")
+    
+    for (user_id,) in users:
+        try:
+            if message.text:
+                await bot.send_message(user_id, message.text)
+            elif message.photo:
+                await bot.send_photo(user_id, message.photo[-1].file_id, caption=message.caption)
+            elif message.video:
+                await bot.send_video(user_id, message.video.file_id, caption=message.caption)
+            elif message.document:
+                await bot.send_document(user_id, message.document.file_id, caption=message.caption)
+            success += 1
+            await asyncio.sleep(0.05)
+        except Exception as e:
+            fail += 1
+    
+    await status_msg.edit_text(f"✅ Рассылка завершена!\n✅ Успешно: {success}\n❌ Ошибок: {fail}")
+    await state.clear()
+
+@dp.message(Command("users"))
+async def users_count(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    cursor.execute('SELECT COUNT(*) FROM users')
+    count = cursor.fetchone()[0]
+    await message.answer(f"👥 Всего пользователей: {count}")
+
+@dp.message(Command("status"))
+async def get_status(message: types.Message):
+    cursor.execute('SELECT value FROM settings WHERE key="cheat_status"')
+    status = cursor.fetchone()[0]
+    await message.answer(f"📊 Текущий статус: {status}")
 
 async def main():
+    print("🚀 Бот запущен!")
+    print(f"👑 Админ ID: {ADMIN_ID}")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
-    
