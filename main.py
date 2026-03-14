@@ -6,15 +6,21 @@ from aiogram.filters import Command
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
-from aiogram.enums import ParseMode # Добавили импорт для стилей
+from aiogram.enums import ParseMode
+# Добавляем новый импорт для настроек
+from aiogram.client.default import DefaultBotProperties 
 
 TOKEN = "8522948833:AAFPgQz77GDY2YafZRtNMM9ilcxZ65_2wus"
 ADMIN_ID = 1471307057
 CARD = "4441111008011946"
 
-# Настраиваем бота с поддержкой HTML по умолчанию
-bot = Bot(token=TOKEN, parse_mode=ParseMode.HTML)
+# ИСПРАВЛЕННАЯ СТРОКА:
+bot = Bot(
+    token=TOKEN, 
+    default=DefaultBotProperties(parse_mode=ParseMode.HTML)
+)
 dp = Dispatcher()
+
 
 # --- БАЗА ДАННЫХ ---
 conn = sqlite3.connect('users.db', check_same_thread=False)
