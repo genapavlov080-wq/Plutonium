@@ -1,5 +1,7 @@
 import asyncio
 import sqlite3
+import requests
+import json
 from datetime import datetime, timedelta
 from aiogram import Bot, Dispatcher, F, types
 from aiogram.filters import Command
@@ -13,14 +15,24 @@ TOKEN = "8522948833:AAFPgQz77GDY2YafZRtNMM9ilcxZ65_2wus"
 ADMIN_ID = 1471307057
 CARD = "4441111008011946"
 
+# CryptoBot API
+CRYPTO_TOKEN = "466345:AADMm3mzlC6KGJmwt3r771bUPIx40CMEKhQ"
+CRYPTO_API = "https://pay.crypt.bot/api"
+
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
-# --- ПОЛНАЯ ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ ---
+# --- ЦЕНЫ ---
+PRICES = {
+    "7": {"uah": 150, "usd": 3.5},
+    "30": {"uah": 300, "usd": 7},
+    "90": {"uah": 700, "usd": 16.5}
+}
+
+# --- БАЗА ДАННЫХ ---
 conn = sqlite3.connect('users.db', check_same_thread=False)
 cursor = conn.cursor()
 
-# Таблица пользователей
 cursor.execute('''
     CREATE TABLE IF NOT EXISTS users (
         user_id INTEGER PRIMARY KEY,
@@ -32,18 +44,30 @@ cursor.execute('''
     )
 ''')
 
-# Таблица настроек
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS crypto_payments (
+        payment_id TEXT PRIMARY KEY,
+        user_id INTEGER,
+        amount REAL,
+        days TEXT,
+        status TEXT DEFAULT 'active',
+        created_at TEXT
+    )
+''')
+
 cursor.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)')
 cursor.execute('INSERT OR IGNORE INTO settings VALUES ("cheat_status", "🟢 UNDETECTED")')
 conn.commit()
 
-# --- ВСЕ СОСТОЯНИЯ ---
+# --- СОСТОЯНИЯ ---
 class OrderState(StatesGroup):
     waiting_for_receipt = State()
     waiting_for_admin_file = State()
     waiting_for_admin_key = State()
     broadcast_text = State()
     ban_reason = State()
+    waiting_for_payment_method = State()
+    waiting_for_crypto_payment = State()
 
 # --- КЛАВИАТУРЫ ---
 def get_main_keyboard():
@@ -53,6 +77,52 @@ def get_main_keyboard():
         [InlineKeyboardButton(text="🆘 Техническая поддержка (Гарант)", url="https://t.me/IllyaGarant")]
     ])
     return kb
+
+def get_payment_methods_keyboard(days):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🇺🇦 Укр банк (карта)", callback_data=f"bank_{days}")],
+        [InlineKeyboardButton(text="💎 CryptoBot (USDT/ТОН)", callback_data=f"crypto_{days}")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data="plut_info")]
+    ])
+    return kb
+
+# --- ФУНКЦИИ CRYPTOBOT ---
+async def create_crypto_invoice(user_id, amount, days):
+    url = f"{CRYPTO_API}/createInvoice"
+    headers = {"Crypto-Pay-API-Token": CRYPTO_TOKEN}
+    data = {
+        "asset": "USDT",
+        "amount": amount,
+        "description": f"Plutonium - {days} дней",
+        "paid_btn_name": "openBot",
+        "paid_btn_url": f"https://t.me/{(await bot.get_me()).username}",
+        "payload": f"{user_id}|{days}"
+    }
+    
+    try:
+        response = requests.post(url, headers=headers, json=data)
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("ok"):
+                return result["result"]
+    except Exception as e:
+        print(f"CryptoBot error: {e}")
+    return None
+
+async def check_crypto_payment(payment_id):
+    url = f"{CRYPTO_API}/getInvoices"
+    headers = {"Crypto-Pay-API-Token": CRYPTO_TOKEN}
+    params = {"invoice_ids": payment_id}
+    
+    try:
+        response = requests.get(url, headers=headers, params=params)
+        if response.status_code == 200:
+            result = response.json()
+            if result.get("ok") and result.get("result", {}).get("items"):
+                return result["result"]["items"][0]
+    except:
+        pass
+    return None
 
 # --- ПРОВЕРКА БАНА ---
 async def check_ban(user_id):
@@ -69,7 +139,6 @@ async def start_command(message: types.Message, state: FSMContext):
     await state.clear()
     user_id = int(message.from_user.id)
     
-    # Проверяем бан
     banned, reason = await check_ban(user_id)
     if banned:
         await message.answer(f"⛔️ <b>Вы заблокированы</b>\nПричина: {reason}")
@@ -89,7 +158,6 @@ async def start_callback(call: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await call.answer()
     
-    # Проверяем бан
     banned, reason = await check_ban(call.from_user.id)
     if banned:
         await call.message.edit_text(f"⛔️ <b>Вы заблокированы</b>\nПричина: {reason}")
@@ -113,7 +181,6 @@ async def profile_callback(call: types.CallbackQuery):
     await call.answer()
     user_id = int(call.from_user.id)
     
-    # Проверяем бан
     banned, reason = await check_ban(user_id)
     if banned:
         await call.message.edit_text(f"⛔️ <b>Вы заблокированы</b>\nПричина: {reason}")
@@ -186,23 +253,122 @@ async def plut_info_callback(call: types.CallbackQuery):
             "[+] Скрытие на записи\n"
             "[+] Улучшение визуала\n"
             "[+] Исправлена невидимость</blockquote>")
+    
+    # Кнопки с ценами в новом формате
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="7 дн - 150 грн", callback_data="pay_7"), InlineKeyboardButton(text="30 дн - 300 грн", callback_data="pay_30")],
-        [InlineKeyboardButton(text="90 дн - 700 грн", callback_data="pay_90")],
+        [InlineKeyboardButton(text="Plutonium - 7 дней", callback_data="select_7")],
+        [InlineKeyboardButton(text="Plutonium - 30 дней", callback_data="select_30")],
+        [InlineKeyboardButton(text="Plutonium - 90 дней", callback_data="select_90")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="so2_menu")]
     ])
     await call.message.edit_media(media=InputMediaPhoto(media="https://files.catbox.moe/eqco0i.png", caption=desc), reply_markup=kb)
 
-@dp.callback_query(F.data.startswith("pay_"))
-async def pay_callback(call: types.CallbackQuery, state: FSMContext):
+@dp.callback_query(F.data.startswith("select_"))
+async def select_period(call: types.CallbackQuery):
     await call.answer()
-    days = call.data.split("_")[1]
-    await state.update_data(days=days)
-    cap = f"💳 <b>Карта:</b> <code>{CARD}</code>\n❗ <b>Комментарий:</b> За цифрові товари\n\nПришлите чек одним сообщением."
+    days = call.data.replace("select_", "")
+    
+    desc = (f"🦾 <b>Plutonium APK</b> (чит без рута)\n\n"
+            f"💰 <b>Цены:</b>\n"
+            f"├ 7 дней: 3.5$ / 150 грн\n"
+            f"├ 30 дней: 7$ / 300 грн\n"
+            f"└ 90 дней: 16.5$ / 700 грн\n\n"
+            f"💳 <b>Выберите способ оплаты:</b>")
+    
+    await call.message.edit_media(media=InputMediaPhoto(media="https://files.catbox.moe/eqco0i.png", caption=desc), 
+                                  reply_markup=get_payment_methods_keyboard(days))
+
+@dp.callback_query(F.data.startswith("bank_"))
+async def bank_payment(call: types.CallbackQuery, state: FSMContext):
+    await call.answer()
+    days = call.data.replace("bank_", "")
+    await state.update_data(days=days, method="bank")
+    
+    cap = (f"💳 <b>Оплата банковской картой</b>\n\n"
+           f"💰 <b>Сумма:</b> {PRICES[days]['uah']} грн\n"
+           f"💳 <b>Карта:</b> <code>{CARD}</code>\n"
+           f"❗ <b>Комментарий:</b> За цифрові товари\n\n"
+           f"📸 После оплаты пришлите скриншот чека.")
+    
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Я оплатил", callback_data="send_receipt"), InlineKeyboardButton(text="❌ Отмена", callback_data="start")]
+        [InlineKeyboardButton(text="✅ Я оплатил", callback_data="send_receipt")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="start")]
     ])
     await call.message.edit_media(media=InputMediaPhoto(media="https://files.catbox.moe/eqco0i.png", caption=cap), reply_markup=kb)
+
+@dp.callback_query(F.data.startswith("crypto_"))
+async def crypto_payment(call: types.CallbackQuery, state: FSMContext):
+    await call.answer()
+    days = call.data.replace("crypto_", "")
+    amount = PRICES[days]['usd']
+    
+    # Создаём счёт в CryptoBot
+    invoice = await create_crypto_invoice(call.from_user.id, amount, days)
+    
+    if not invoice:
+        await call.message.edit_text("❌ Ошибка создания платежа. Попробуйте позже.")
+        return
+    
+    # Сохраняем в БД
+    cursor.execute('''
+        INSERT INTO crypto_payments (payment_id, user_id, amount, days, created_at)
+        VALUES (?, ?, ?, ?, ?)
+    ''', (str(invoice["invoice_id"]), call.from_user.id, amount, days, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+    conn.commit()
+    
+    cap = (f"💎 <b>Оплата через CryptoBot</b>\n\n"
+           f"💰 <b>Сумма:</b> {amount}$\n"
+           f"📅 <b>Тариф:</b> {days} дней\n\n"
+           f"👇 Нажмите кнопку ниже для оплаты")
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💎 Оплатить", url=invoice["pay_url"])],
+        [InlineKeyboardButton(text="✅ Проверить оплату", callback_data=f"check_crypto_{invoice['invoice_id']}")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="start")]
+    ])
+    await call.message.edit_media(media=InputMediaPhoto(media="https://files.catbox.moe/eqco0i.png", caption=cap), reply_markup=kb)
+
+@dp.callback_query(F.data.startswith("check_crypto_"))
+async def check_crypto_payment_callback(call: types.CallbackQuery, state: FSMContext):
+    await call.answer()
+    payment_id = int(call.data.replace("check_crypto_", ""))
+    
+    # Проверяем статус платежа
+    payment_info = await check_crypto_payment(payment_id)
+    
+    if payment_info and payment_info.get("status") == "paid":
+        # Платёж успешен
+        cursor.execute('SELECT days FROM crypto_payments WHERE payment_id = ?', (str(payment_id),))
+        res = cursor.fetchone()
+        
+        if res:
+            days = res[0]
+            target_id = call.from_user.id
+            expiry_date = (datetime.now() + timedelta(days=int(days))).strftime('%Y-%m-%d %H:%M:%S')
+            
+            cursor.execute('''
+                UPDATE users SET expiry_date = ?, product_name = ? WHERE user_id = ?
+            ''', (expiry_date, "Plutonium", target_id))
+            
+            cursor.execute('UPDATE crypto_payments SET status = "paid" WHERE payment_id = ?', (str(payment_id),))
+            conn.commit()
+            
+            await call.message.edit_text(
+                f"✅ <b>Оплата подтверждена!</b>\n\n"
+                f"📅 Подписка активирована до {expiry_date}\n\n"
+                f"🔑 Ключ и файл будут отправлены администратором вручную."
+            )
+            
+            # Уведомляем админа
+            await bot.send_message(
+                ADMIN_ID,
+                f"💰 <b>Новый крипто-платёж</b>\n"
+                f"👤 Пользователь: {target_id}\n"
+                f"📅 Тариф: {days} дней\n"
+                f"💵 Сумма: {PRICES[days]['usd']}$"
+            )
+    else:
+        await call.message.answer("⏳ Платёж ещё не подтверждён. Попробуйте через минуту.")
 
 @dp.callback_query(F.data == "send_receipt")
 async def receipt_callback(call: types.CallbackQuery, state: FSMContext):
@@ -210,32 +376,21 @@ async def receipt_callback(call: types.CallbackQuery, state: FSMContext):
     await call.message.answer("📸 <b>Отправьте скриншот чека</b> (можно фото, документ или скриншот):")
     await state.set_state(OrderState.waiting_for_receipt)
 
-# ===== ИСПРАВЛЕННЫЙ ПРИЕМ ЧЕКОВ =====
 @dp.message(OrderState.waiting_for_receipt)
 async def handle_receipt(message: types.Message, state: FSMContext):
     data = await state.get_data()
     
-    # Определяем тип медиа и получаем file_id
     file_id = None
     file_type = None
     
     if message.photo:
         file_id = message.photo[-1].file_id
         file_type = "photo"
-    elif message.document:
-        # Проверяем, что документ - это изображение
-        if message.document.mime_type and message.document.mime_type.startswith('image/'):
-            file_id = message.document.file_id
-            file_type = "document"
-        else:
-            await message.answer("❌ Пожалуйста, отправьте скриншот чека (изображение)")
-            return
-    elif message.video:
-        # Видео тоже можно как чек (но редко)
-        file_id = message.video.file_id
-        file_type = "video"
+    elif message.document and message.document.mime_type and message.document.mime_type.startswith('image/'):
+        file_id = message.document.file_id
+        file_type = "document"
     else:
-        await message.answer("❌ Пожалуйста, отправьте скриншот чека (фото или документ)")
+        await message.answer("❌ Пожалуйста, отправьте скриншот чека (изображение)")
         return
     
     adm_kb = InlineKeyboardMarkup(inline_keyboard=[
@@ -245,13 +400,10 @@ async def handle_receipt(message: types.Message, state: FSMContext):
     
     caption = f"🔔 <b>Чек от пользователя:</b> {message.from_user.id}\nТариф: {data['days']} дней"
     
-    # Отправляем админу в зависимости от типа
     if file_type == "photo":
         await bot.send_photo(ADMIN_ID, file_id, caption=caption, reply_markup=adm_kb)
-    elif file_type == "document":
+    else:
         await bot.send_document(ADMIN_ID, file_id, caption=caption, reply_markup=adm_kb)
-    elif file_type == "video":
-        await bot.send_video(ADMIN_ID, file_id, caption=caption, reply_markup=adm_kb)
     
     await message.answer("✅ Чек успешно отправлен администратору! Ожидайте подтверждения.")
     await state.clear()
@@ -303,14 +455,12 @@ async def admin_key_input(message: types.Message, state: FSMContext):
     
     expiry_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
     
-    # Снимаем бан если был и добавляем подписку
     cursor.execute('''
         INSERT OR REPLACE INTO users (user_id, expiry_date, product_name, subscribed_at, banned) 
         VALUES (?, ?, ?, COALESCE((SELECT subscribed_at FROM users WHERE user_id = ?), ?), 0)
     ''', (target_id, expiry_date, "Plutonium", target_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
     conn.commit()
     
-    # Формируем сообщение пользователю
     success_text = f"💎 <b>Ваш заказ успешно активирован!</b>\n\n📅 <b>Подписка действует до:</b> {expiry_date}\n\n"
     
     try:
@@ -323,6 +473,8 @@ async def admin_key_input(message: types.Message, state: FSMContext):
                 await bot.send_message(target_id, f"🔑 <b>Ваш ключ:</b> <code>{message.text}</code>")
         else:
             await bot.send_message(target_id, success_text + f"🔑 <b>Ваш ключ:</b> <code>{message.text}</code>")
+        else:
+            await bot.send_message(target_id, success_text + f"🔑 <b>Ваш ключ:</b> <code>{message.text}</code>")
         
         await message.answer("✅ Готово! Подписка активирована и сохранена в базе.")
     except Exception as e:
@@ -330,8 +482,7 @@ async def admin_key_input(message: types.Message, state: FSMContext):
     
     await state.clear()
 
-# ===== НОВЫЕ АДМИН-КОМАНДЫ =====
-
+# --- АДМИН-КОМАНДЫ ---
 @dp.message(Command("ban"))
 async def ban_user(message: types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
@@ -400,7 +551,6 @@ async def revoke_subscription(message: types.Message):
     target_id = int(parts[0])
     reason = parts[1]
     
-    # Баним и удаляем подписку
     cursor.execute('''
         UPDATE users 
         SET banned = 1, 
@@ -417,8 +567,6 @@ async def revoke_subscription(message: types.Message):
         pass
     
     await message.answer(f"✅ Подписка пользователя {target_id} аннулирована\nПричина: {reason}")
-
-# ===== ОСТАЛЬНЫЕ КОМАНДЫ =====
 
 @dp.message(Command("set_status"))
 async def set_status(message: types.Message):
@@ -455,7 +603,6 @@ async def broadcast_send(message: types.Message, state: FSMContext):
     
     success = 0
     fail = 0
-    
     status_msg = await message.answer(f"⏳ Начинаю рассылку {len(users)} пользователям...")
     
     for (user_id,) in users:
@@ -470,7 +617,7 @@ async def broadcast_send(message: types.Message, state: FSMContext):
                 await bot.send_document(user_id, message.document.file_id, caption=message.caption)
             success += 1
             await asyncio.sleep(0.05)
-        except Exception as e:
+        except:
             fail += 1
     
     await status_msg.edit_text(f"✅ Рассылка завершена!\n✅ Успешно: {success}\n❌ Ошибок: {fail}")
@@ -507,7 +654,7 @@ async def get_status(message: types.Message):
 async def main():
     print("🚀 Бот запущен!")
     print(f"👑 Админ ID: {ADMIN_ID}")
-    print("✅ Подписки сохраняются в базе данных")
+    print("✅ CryptoBot интегрирован")
     print("✅ Команды: /ban, /unban, /revoke, /broadcast, /set_status, /users")
     await dp.start_polling(bot)
 
