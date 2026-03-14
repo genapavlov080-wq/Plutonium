@@ -19,9 +19,21 @@ dp = Dispatcher()
 # --- ПОЛНАЯ ИНИЦИАЛИЗАЦИЯ БАЗЫ ДАННЫХ ---
 conn = sqlite3.connect('users.db', check_same_thread=False)
 cursor = conn.cursor()
-cursor.execute('CREATE TABLE IF NOT EXISTS users (user_id INTEGER PRIMARY KEY, expiry_date TEXT, product_name TEXT)')
+
+# Таблица пользователей с подписками
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS users (
+        user_id INTEGER PRIMARY KEY,
+        expiry_date TEXT,
+        product_name TEXT,
+        subscribed_at TEXT
+    )
+''')
+
+# Таблица настроек
 cursor.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)')
 cursor.execute('INSERT OR IGNORE INTO settings VALUES ("cheat_status", "🟢 UNDETECTED")')
+cursor.execute('INSERT OR IGNORE INTO settings VALUES ("total_users", "0")')
 conn.commit()
 
 # --- ВСЕ СОСТОЯНИЯ ---
@@ -45,8 +57,13 @@ def get_main_keyboard():
 @dp.message(Command("start"))
 async def start_command(message: types.Message, state: FSMContext):
     await state.clear()
-    cursor.execute('INSERT OR IGNORE INTO users (user_id) VALUES (?)', (int(message.from_user.id),))
+    user_id = int(message.from_user.id)
+    
+    # Добавляем пользователя если его нет
+    cursor.execute('INSERT OR IGNORE INTO users (user_id, subscribed_at) VALUES (?, ?)', 
+                  (user_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
     conn.commit()
+    
     cursor.execute('SELECT value FROM settings WHERE key="cheat_status"')
     status = cursor.fetchone()[0]
     caption = f"🔥 <b>Plutonium Store — Официальный дистрибьютор</b>\n\n📈 Статус ПО: {status}\n\nДобро пожаловать в наш магазин модификаций."
@@ -77,18 +94,27 @@ async def profile_callback(call: types.CallbackQuery):
     res = cursor.fetchone()
     
     time_left = "Нет активной подписки"
+    product = "Нет"
+    
     if res and res[0]:
         try:
             expiry_date = datetime.strptime(res[0], '%Y-%m-%d %H:%M:%S')
             diff = expiry_date - datetime.now()
             if diff.total_seconds() > 0:
-                time_left = f"{diff.days} дн. {diff.seconds // 3600} ч. {(diff.seconds % 3600) // 60} мин."
+                days = diff.days
+                hours = diff.seconds // 3600
+                minutes = (diff.seconds % 3600) // 60
+                time_left = f"{days} дн. {hours} ч. {minutes} мин."
+                product = res[1] if res[1] else "Plutonium"
             else:
                 time_left = "Истекла"
+                # Можно автоматически очистить истекшую подписку
+                cursor.execute('UPDATE users SET expiry_date = NULL, product_name = NULL WHERE user_id = ?', (user_id,))
+                conn.commit()
         except Exception as e:
-            time_left = "Ошибка вычисления"
+            time_left = "Ошибка формата"
     
-    cap = f"👤 <b>Личный кабинет пользователя</b>\n\n🆔 ID: <code>{user_id}</code>\n📦 Товар: {res[1] if res and res[1] else 'Нет'}\n⏳ Осталось времени: <b>{time_left}</b>"
+    cap = f"👤 <b>Личный кабинет пользователя</b>\n\n🆔 ID: <code>{user_id}</code>\n📦 Товар: {product}\n⏳ Осталось времени: <b>{time_left}</b>"
     await call.message.edit_media(media=InputMediaPhoto(media="https://files.catbox.moe/5h6fr0.png", caption=cap), 
                                   reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data="start")]]))
 
@@ -209,23 +235,33 @@ async def admin_key_input(message: types.Message, state: FSMContext):
         return
     
     data = await state.get_data()
-    expiry = (datetime.now() + timedelta(days=int(data['days']))).strftime('%Y-%m-%d %H:%M:%S')
     target_id = int(data['target_id'])
+    days = int(data['days'])
     
-    cursor.execute('INSERT OR REPLACE INTO users (user_id, expiry_date, product_name) VALUES (?, ?, ?)', 
-                  (target_id, expiry, "Plutonium"))
+    # Вычисляем дату окончания подписки
+    expiry_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+    
+    # Сохраняем подписку в базу данных
+    cursor.execute('''
+        INSERT OR REPLACE INTO users (user_id, expiry_date, product_name, subscribed_at) 
+        VALUES (?, ?, ?, COALESCE((SELECT subscribed_at FROM users WHERE user_id = ?), ?))
+    ''', (target_id, expiry_date, "Plutonium", target_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
     conn.commit()
     
     # Формируем сообщение пользователю
+    success_text = f"💎 <b>Ваш заказ успешно активирован!</b>\n\n📅 <b>Подписка действует до:</b> {expiry_date}\n\n"
+    
     if data.get('file'):
         if data['file_text']:
-            await bot.send_message(target_id, f"💎 <b>Ваш заказ успешно активирован!</b>\n\n🔑 <b>Ключ:</b> <code>{message.text}</code>\n\n📝 <b>Инструкция:</b>\n{data['file_text']}")
+            await bot.send_message(target_id, success_text + f"📝 <b>Инструкция:</b>\n{data['file_text']}")
+            await bot.send_message(target_id, f"🔑 <b>Ваш ключ:</b> <code>{message.text}</code>")
         else:
-            await bot.send_document(target_id, data['file'], caption=f"💎 <b>Ваш заказ успешно активирован!</b>\n\n🔑 <b>Ключ:</b> <code>{message.text}</code>")
+            await bot.send_document(target_id, data['file'], caption=success_text)
+            await bot.send_message(target_id, f"🔑 <b>Ваш ключ:</b> <code>{message.text}</code>")
     else:
-        await bot.send_message(target_id, f"💎 <b>Ваш заказ успешно активирован!</b>\n\n🔑 <b>Ключ:</b> <code>{message.text}</code>")
+        await bot.send_message(target_id, success_text + f"🔑 <b>Ваш ключ:</b> <code>{message.text}</code>")
     
-    await message.answer("✅ Готово! Товар выдан пользователю.")
+    await message.answer("✅ Готово! Подписка активирована и сохранена в базе.")
     await state.clear()
 
 @dp.message(Command("set_status"))
@@ -290,8 +326,13 @@ async def users_count(message: types.Message):
         return
     
     cursor.execute('SELECT COUNT(*) FROM users')
-    count = cursor.fetchone()[0]
-    await message.answer(f"👥 Всего пользователей: {count}")
+    total = cursor.fetchone()[0]
+    
+    cursor.execute('SELECT COUNT(*) FROM users WHERE expiry_date IS NOT NULL AND expiry_date > ?', 
+                  (datetime.now().strftime('%Y-%m-%d %H:%M:%S'),))
+    active = cursor.fetchone()[0]
+    
+    await message.answer(f"👥 Всего пользователей: {total}\n✅ С активной подпиской: {active}")
 
 @dp.message(Command("status"))
 async def get_status(message: types.Message):
@@ -299,9 +340,28 @@ async def get_status(message: types.Message):
     status = cursor.fetchone()[0]
     await message.answer(f"📊 Текущий статус: {status}")
 
+@dp.message(Command("check_subs"))
+async def check_subs(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    cursor.execute('SELECT user_id, expiry_date, product_name FROM users WHERE expiry_date IS NOT NULL')
+    subs = cursor.fetchall()
+    
+    if not subs:
+        await message.answer("📭 Нет активных подписок")
+        return
+    
+    text = "📋 <b>Активные подписки:</b>\n\n"
+    for uid, exp, prod in subs[:10]:  # показываем только первые 10
+        text += f"👤 ID: <code>{uid}</code>\n📦 {prod}\n📅 до: {exp}\n\n"
+    
+    await message.answer(text)
+
 async def main():
     print("🚀 Бот запущен!")
     print(f"👑 Админ ID: {ADMIN_ID}")
+    print("✅ Подписки сохраняются в базе данных")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
