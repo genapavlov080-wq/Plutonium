@@ -22,20 +22,44 @@ CRYPTO_API = "https://pay.crypt.bot/api"
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
-# --- ЦЕНЫ ДЛЯ СТАНДОФФ ---
-SO2_PRICES = {
-    "7": {"uah": 150, "usd": 3.5},
-    "30": {"uah": 300, "usd": 7},
-    "90": {"uah": 700, "usd": 16.5}
-}
-
-# --- ЦЕНЫ ДЛЯ PUBG ЧИТОВ ---
-PUBG_PRICES = {
+# --- ЦЕНЫ ---
+PRICES = {
+    "so2": {"7": 150, "30": 300, "90": 700},
     "zolo": {"1": 85, "3": 180, "7": 325, "14": 400, "30": 690, "60": 1000},
     "impact": {"1": 115, "7": 480, "30": 1170},
     "king": {"1": 100, "7": 425, "30": 1060},
     "inferno": {"1": 80, "3": 200, "7": 350, "15": 530, "30": 690, "60": 950},
     "zolo_cis": {"1": 70, "3": 150, "7": 250, "14": 350, "30": 700, "60": 900}
+}
+
+# --- USD ЦЕНЫ ДЛЯ CRYPTOBOT ---
+USD_PRICES = {
+    "so2": {"7": 3.5, "30": 7, "90": 16.5},
+    "zolo": {"1": 2.0, "3": 4.2, "7": 7.6, "14": 9.3, "30": 16.0, "60": 23.2},
+    "impact": {"1": 2.7, "7": 11.2, "30": 27.2},
+    "king": {"1": 2.3, "7": 9.9, "30": 24.7},
+    "inferno": {"1": 1.9, "3": 4.7, "7": 8.1, "15": 12.3, "30": 16.0, "60": 22.1},
+    "zolo_cis": {"1": 1.6, "3": 3.5, "7": 5.8, "14": 8.1, "30": 16.3, "60": 20.9}
+}
+
+# --- НАЗВАНИЯ ЧИТОВ ---
+CHEAT_NAMES = {
+    "so2": "Plutonium",
+    "zolo": "Zolo",
+    "impact": "Impact VIP",
+    "king": "King Mod",
+    "inferno": "Inferno",
+    "zolo_cis": "Zolo CIS"
+}
+
+# --- ОПИСАНИЯ ЧИТОВ ---
+CHEAT_DESCS = {
+    "so2": "🦾 Plutonium APK\n\n🛡️ Чит без рута для Standoff 2\n• Aimbot\n• Wallhack\n• ESP",
+    "zolo": "🔥 Zolo Cheat\n\n🛡️ Универсальный чит для PUBG\n• Aimbot\n• Радар\n• Без Root",
+    "impact": "⚡ Impact VIP\n\n🚀 Премиум чит для PUBG\n• Улучшенный Aimbot\n• ESP\n• Анти-бан",
+    "king": "👑 King Mod\n\n👑 Элитный чит для PUBG\n• Премиум функции\n• Скин-чейнджер",
+    "inferno": "💥 Inferno Cheat\n\n🔥 Мощный чит для PUBG\n• Имба-режим\n• Невидимость",
+    "zolo_cis": "🎮 Zolo CIS Edition\n\n⚙️ Оптимизирован для СНГ\n• Низкие требования\n• Стабильность"
 }
 
 # --- БАЗА ДАННЫХ ---
@@ -88,6 +112,14 @@ def get_main_keyboard():
     ])
     return kb
 
+def get_payment_methods_keyboard(cheat: str, days: str):
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🇺🇦 Укр банк (карта)", callback_data=f"bank_{cheat}_{days}")],
+        [InlineKeyboardButton(text="💎 CryptoBot (USDT)", callback_data=f"crypto_{cheat}_{days}")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"back_to_{cheat}")]
+    ])
+    return kb
+
 # --- ФУНКЦИИ CRYPTOBOT ---
 async def create_crypto_invoice(user_id, amount, days, product):
     url = f"{CRYPTO_API}/createInvoice"
@@ -95,7 +127,7 @@ async def create_crypto_invoice(user_id, amount, days, product):
     data = {
         "asset": "USDT",
         "amount": amount,
-        "description": f"{product} - {days} дней",
+        "description": f"{CHEAT_NAMES[product]} - {days} дней",
         "paid_btn_name": "openBot",
         "paid_btn_url": f"https://t.me/{(await bot.get_me()).username}",
         "payload": f"{user_id}|{days}|{product}"
@@ -246,8 +278,8 @@ async def reviews_callback(call: types.CallbackQuery):
 async def buy_callback(call: types.CallbackQuery):
     await call.answer()
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔫 Standoff 2", callback_data="so2_menu")],
-        [InlineKeyboardButton(text="🎯 PUBG Mobile", callback_data="pubg_menu")],
+        [InlineKeyboardButton(text="🔫 Standoff 2", callback_data="game_so2")],
+        [InlineKeyboardButton(text="🎯 PUBG Mobile", callback_data="game_pubg")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="start")]
     ])
     await call.message.edit_media(
@@ -257,203 +289,152 @@ async def buy_callback(call: types.CallbackQuery):
     )
 
 # ---------- STANDOFF 2 ----------
-@dp.callback_query(F.data == "so2_menu")
-async def so2_callback(call: types.CallbackQuery):
+@dp.callback_query(F.data == "game_so2")
+async def so2_menu(call: types.CallbackQuery):
     await call.answer()
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="📱 Plutonium Non Root", callback_data="plut_info")],
+        [InlineKeyboardButton(text="🦾 Plutonium", callback_data="cheat_so2")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy_key")]
     ])
     await call.message.edit_media(
         media=InputMediaPhoto(media="https://files.catbox.moe/ljpeoi.png", 
-                             caption="⚙️ <b>Standoff 2</b>\nВыберите версию:"),
-        reply_markup=kb
-    )
-
-@dp.callback_query(F.data == "plut_info")
-async def plut_info_callback(call: types.CallbackQuery):
-    await call.answer()
-    desc = ("🔴 <b>Plutonium для Standoff 2</b>\n\n"
-            "🦾 Чит без рута\n\n"
-            "<b>Функции:</b>\n"
-            "• Aimbot\n• Wallhack\n• ESP\n• И многое другое")
-    
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="7 дней - 150₴ / 3.5$", callback_data="pay_bank_so2_7"),
-         InlineKeyboardButton(text="30 дней - 300₴ / 7$", callback_data="pay_bank_so2_30")],
-        [InlineKeyboardButton(text="90 дней - 700₴ / 16.5$", callback_data="pay_bank_so2_90")],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="so2_menu")]
-    ])
-    await call.message.edit_media(
-        media=InputMediaPhoto(media="https://files.catbox.moe/eqco0i.png", caption=desc),
+                             caption="⚙️ <b>Standoff 2</b>\nВыберите чит:"),
         reply_markup=kb
     )
 
 # ---------- PUBG ----------
-@dp.callback_query(F.data == "pubg_menu")
+@dp.callback_query(F.data == "game_pubg")
 async def pubg_menu(call: types.CallbackQuery):
     await call.answer()
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🤖 Android (все читы)", callback_data="android_menu")],
+        [InlineKeyboardButton(text="🔥 Zolo", callback_data="cheat_zolo")],
+        [InlineKeyboardButton(text="⚡ Impact VIP", callback_data="cheat_impact")],
+        [InlineKeyboardButton(text="👑 King Mod", callback_data="cheat_king")],
+        [InlineKeyboardButton(text="💥 Inferno", callback_data="cheat_inferno")],
+        [InlineKeyboardButton(text="🎮 Zolo CIS", callback_data="cheat_zolo_cis")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy_key")]
     ])
     await call.message.edit_media(
         media=InputMediaPhoto(media="https://files.catbox.moe/1u2tb9.png",
-                             caption="🎯 <b>PUBG Mobile</b>\n\nВыберите платформу:"),
+                             caption="🎯 <b>PUBG Mobile</b>\nВыберите чит:"),
         reply_markup=kb
     )
 
-# ---------- ANDROID МЕНЮ ----------
-@dp.callback_query(F.data == "android_menu")
-async def android_menu(call: types.CallbackQuery):
+# ---------- ФУНКЦИЯ ПОКАЗА ЧИТА ----------
+async def show_cheat(call: types.CallbackQuery, cheat: str):
     await call.answer()
-    desc = "🤖 <b>PUBG Mobile - Android</b>\n\nВыберите чит:"
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔥 Zolo Cheat", callback_data="pubg_zolo")],
-        [InlineKeyboardButton(text="⚡ Impact VIP", callback_data="pubg_impact")],
-        [InlineKeyboardButton(text="👑 King Mod", callback_data="pubg_king")],
-        [InlineKeyboardButton(text="💥 Inferno", callback_data="pubg_inferno")],
-        [InlineKeyboardButton(text="🎮 Zolo CIS", callback_data="pubg_zolo_cis")],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="pubg_menu")]
-    ])
-    await call.message.edit_media(
-        media=InputMediaPhoto(media="https://files.catbox.moe/916cwt.png", caption=desc),
-        reply_markup=kb
-    )
-
-# ---------- ФУНКЦИЯ ОПИСАНИЙ ----------
-def get_pubg_description(cheat: str) -> str:
-    desc = {
-        "zolo": "🔥 <b>Zolo Cheat</b>\n\n"
-                "🛡️ <b>Функции:</b>\n"
-                "• Aimbot\n• Wallhack\n• Радар\n• Без Root\n\n"
-                "📱 Android 7+",
-        
-        "impact": "⚡ <b>Impact VIP</b>\n\n"
-                  "🚀 <b>Элитные функции:</b>\n"
-                  "• Улучшенный Aimbot\n• ESP\n• Без банов\n\n"
-                  "💎 Премиум качество",
-        
-        "king": "👑 <b>King Mod</b>\n\n"
-                "👑 <b>Особенности:</b>\n"
-                "• Премиум Aimbot\n• Полный ESP\n• Скин-чейнджер",
-        
-        "inferno": "💥 <b>Inferno Cheat</b>\n\n"
-                   "🔥 <b>Уникально:</b>\n"
-                   "• Имба-режим\n• Невидимость\n• Авто-стрельба",
-        
-        "zolo_cis": "🎮 <b>Zolo CIS Edition</b>\n\n"
-                    "⚙️ <b>Для СНГ:</b>\n"
-                    "• Оптимизация\n• Низкие требования\n• Стабильность"
+    
+    # Получаем фото для чита
+    photos = {
+        "so2": "https://files.catbox.moe/eqco0i.png",
+        "zolo": "https://files.catbox.moe/opz3nu.png",
+        "impact": "https://files.catbox.moe/9ztxkj.png",
+        "king": "https://files.catbox.moe/vyhlec.png",
+        "inferno": "https://files.catbox.moe/5vtpq1.png",
+        "zolo_cis": "https://files.catbox.moe/deicc2.png"
     }
-    return desc.get(cheat, "Описание временно отсутствует")
-
-# ---------- ZOLO ----------
-@dp.callback_query(F.data == "pubg_zolo")
-async def pubg_zolo(call: types.CallbackQuery):
-    await call.answer()
-    desc = get_pubg_description("zolo")
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="1 день - 85₴", callback_data="pay_bank_zolo_1"),
-         InlineKeyboardButton(text="3 дня - 180₴", callback_data="pay_bank_zolo_3")],
-        [InlineKeyboardButton(text="7 дней - 325₴", callback_data="pay_bank_zolo_7"),
-         InlineKeyboardButton(text="14 дней - 400₴", callback_data="pay_bank_zolo_14")],
-        [InlineKeyboardButton(text="30 дней - 690₴", callback_data="pay_bank_zolo_30"),
-         InlineKeyboardButton(text="60 дней - 1000₴", callback_data="pay_bank_zolo_60")],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="android_menu")]
-    ])
-    await call.message.edit_media(
-        media=InputMediaPhoto(media="https://files.catbox.moe/opz3nu.png", caption=desc),
-        reply_markup=kb
-    )
-
-# ---------- IMPACT ----------
-@dp.callback_query(F.data == "pubg_impact")
-async def pubg_impact(call: types.CallbackQuery):
-    await call.answer()
-    desc = get_pubg_description("impact")
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="1 день - 115₴", callback_data="pay_bank_impact_1"),
-         InlineKeyboardButton(text="7 дней - 480₴", callback_data="pay_bank_impact_7")],
-        [InlineKeyboardButton(text="30 дней - 1170₴", callback_data="pay_bank_impact_30")],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="android_menu")]
-    ])
-    await call.message.edit_media(
-        media=InputMediaPhoto(media="https://files.catbox.moe/9ztxkj.png", caption=desc),
-        reply_markup=kb
-    )
-
-# ---------- KING ----------
-@dp.callback_query(F.data == "pubg_king")
-async def pubg_king(call: types.CallbackQuery):
-    await call.answer()
-    desc = get_pubg_description("king")
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="1 день - 100₴", callback_data="pay_bank_king_1"),
-         InlineKeyboardButton(text="7 дней - 425₴", callback_data="pay_bank_king_7")],
-        [InlineKeyboardButton(text="30 дней - 1060₴", callback_data="pay_bank_king_30")],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="android_menu")]
-    ])
-    await call.message.edit_media(
-        media=InputMediaPhoto(media="https://files.catbox.moe/vyhlec.png", caption=desc),
-        reply_markup=kb
-    )
-
-# ---------- INFERNO ----------
-@dp.callback_query(F.data == "pubg_inferno")
-async def pubg_inferno(call: types.CallbackQuery):
-    await call.answer()
-    desc = get_pubg_description("inferno")
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="1 день - 80₴", callback_data="pay_bank_inferno_1"),
-         InlineKeyboardButton(text="3 дня - 200₴", callback_data="pay_bank_inferno_3")],
-        [InlineKeyboardButton(text="7 дней - 350₴", callback_data="pay_bank_inferno_7"),
-         InlineKeyboardButton(text="15 дней - 530₴", callback_data="pay_bank_inferno_15")],
-        [InlineKeyboardButton(text="30 дней - 690₴", callback_data="pay_bank_inferno_30"),
-         InlineKeyboardButton(text="60 дней - 950₴", callback_data="pay_bank_inferno_60")],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="android_menu")]
-    ])
-    await call.message.edit_media(
-        media=InputMediaPhoto(media="https://files.catbox.moe/5vtpq1.png", caption=desc),
-        reply_markup=kb
-    )
-
-# ---------- ZOLO CIS ----------
-@dp.callback_query(F.data == "pubg_zolo_cis")
-async def pubg_zolo_cis(call: types.CallbackQuery):
-    await call.answer()
-    desc = get_pubg_description("zolo_cis")
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="1 день - 70₴", callback_data="pay_bank_zolo_cis_1"),
-         InlineKeyboardButton(text="3 дня - 150₴", callback_data="pay_bank_zolo_cis_3")],
-        [InlineKeyboardButton(text="7 дней - 250₴", callback_data="pay_bank_zolo_cis_7"),
-         InlineKeyboardButton(text="14 дней - 350₴", callback_data="pay_bank_zolo_cis_14")],
-        [InlineKeyboardButton(text="30 дней - 700₴", callback_data="pay_bank_zolo_cis_30"),
-         InlineKeyboardButton(text="60 дней - 900₴", callback_data="pay_bank_zolo_cis_60")],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="android_menu")]
-    ])
-    await call.message.edit_media(
-        media=InputMediaPhoto(media="https://files.catbox.moe/deicc2.png", caption=desc),
-        reply_markup=kb
-    )
-
-# ---------- ОБРАБОТЧИК ОПЛАТЫ ----------
-@dp.callback_query(F.data.startswith("pay_bank_"))
-async def handle_payment(call: types.CallbackQuery, state: FSMContext):
-    await call.answer()
-    parts = call.data.replace("pay_bank_", "").split("_")
-    product = parts[0]
-    days = parts[1]
     
-    await state.update_data(product=product, days=days, method="bank")
+    # Формируем описание с ценами
+    desc = f"🦾 <b>{CHEAT_NAMES[cheat]}</b>\n\n"
+    desc += CHEAT_DESCS[cheat] + "\n\n"
+    desc += "💰 <b>Цены (UAH):</b>\n"
     
-    if product == "so2":
-        price = SO2_PRICES[days]['uah']
-    else:
-        price = PUBG_PRICES[product][days]
+    # Добавляем все доступные цены
+    for days, price in PRICES[cheat].items():
+        days_text = f"{days} дн." if days != "1" else "1 день"
+        desc += f"├ {days_text}: {price} грн"
+        if cheat == "so2":
+            desc += f" / {USD_PRICES[cheat][days]}$"
+        desc += "\n"
+    
+    desc += "\n💳 <b>Выберите способ оплаты:</b>"
+    
+    # Создаем кнопки для каждого периода
+    buttons = []
+    for days in PRICES[cheat].keys():
+        days_text = f"{days} дн." if days != "1" else "1 день"
+        buttons.append([InlineKeyboardButton(text=f"{days_text}", callback_data=f"period_{cheat}_{days}")])
+    
+    # Добавляем кнопку назад
+    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data=f"game_{'so2' if cheat=='so2' else 'pubg'}")])
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
+    
+    await call.message.edit_media(
+        media=InputMediaPhoto(media=photos[cheat], caption=desc),
+        reply_markup=kb
+    )
+
+# ---------- ОБРАБОТЧИКИ ДЛЯ КАЖДОГО ЧИТА ----------
+@dp.callback_query(F.data == "cheat_so2")
+async def cheat_so2(call: types.CallbackQuery):
+    await show_cheat(call, "so2")
+
+@dp.callback_query(F.data == "cheat_zolo")
+async def cheat_zolo(call: types.CallbackQuery):
+    await show_cheat(call, "zolo")
+
+@dp.callback_query(F.data == "cheat_impact")
+async def cheat_impact(call: types.CallbackQuery):
+    await show_cheat(call, "impact")
+
+@dp.callback_query(F.data == "cheat_king")
+async def cheat_king(call: types.CallbackQuery):
+    await show_cheat(call, "king")
+
+@dp.callback_query(F.data == "cheat_inferno")
+async def cheat_inferno(call: types.CallbackQuery):
+    await show_cheat(call, "inferno")
+
+@dp.callback_query(F.data == "cheat_zolo_cis")
+async def cheat_zolo_cis(call: types.CallbackQuery):
+    await show_cheat(call, "zolo_cis")
+
+# ---------- ВЫБОР ПЕРИОДА ----------
+@dp.callback_query(F.data.startswith("period_"))
+async def select_period(call: types.CallbackQuery, state: FSMContext):
+    await call.answer()
+    _, cheat, days = call.data.split("_")
+    
+    # Формируем описание с выбранным периодом
+    desc = f"🦾 <b>{CHEAT_NAMES[cheat]}</b>\n\n"
+    desc += f"📅 Период: {days} дн.\n"
+    desc += f"💰 Сумма: {PRICES[cheat][days]} грн"
+    if cheat == "so2":
+        desc += f" / {USD_PRICES[cheat][days]}$"
+    desc += "\n\n💳 Выберите способ оплаты:"
+    
+    # Кнопки оплаты
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🇺🇦 Укр банк", callback_data=f"bank_{cheat}_{days}")],
+        [InlineKeyboardButton(text="💎 CryptoBot", callback_data=f"crypto_{cheat}_{days}")],
+        [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"cheat_{cheat}")]
+    ])
+    
+    # Определяем фото
+    photos = {
+        "so2": "https://files.catbox.moe/eqco0i.png",
+        "zolo": "https://files.catbox.moe/opz3nu.png",
+        "impact": "https://files.catbox.moe/9ztxkj.png",
+        "king": "https://files.catbox.moe/vyhlec.png",
+        "inferno": "https://files.catbox.moe/5vtpq1.png",
+        "zolo_cis": "https://files.catbox.moe/deicc2.png"
+    }
+    
+    await call.message.edit_media(
+        media=InputMediaPhoto(media=photos[cheat], caption=desc),
+        reply_markup=kb
+    )
+
+# ---------- ОПЛАТА БАНКОМ ----------
+@dp.callback_query(F.data.startswith("bank_"))
+async def bank_payment(call: types.CallbackQuery, state: FSMContext):
+    await call.answer()
+    _, cheat, days = call.data.split("_")
+    await state.update_data(product=cheat, days=days, method="bank")
     
     cap = (f"💳 <b>Оплата банковской картой</b>\n\n"
-           f"💰 <b>Сумма:</b> {price} грн\n"
+           f"💰 <b>Сумма:</b> {PRICES[cheat][days]} грн\n"
            f"💳 <b>Карта:</b> <code>{CARD}</code>\n"
            f"❗ <b>Комментарий:</b> За цифрові товари\n\n"
            f"📸 После оплаты пришлите скриншот")
@@ -462,10 +443,99 @@ async def handle_payment(call: types.CallbackQuery, state: FSMContext):
         [InlineKeyboardButton(text="✅ Я оплатил", callback_data="send_receipt")],
         [InlineKeyboardButton(text="❌ Отмена", callback_data="start")]
     ])
+    
+    photos = {
+        "so2": "https://files.catbox.moe/eqco0i.png",
+        "zolo": "https://files.catbox.moe/opz3nu.png",
+        "impact": "https://files.catbox.moe/9ztxkj.png",
+        "king": "https://files.catbox.moe/vyhlec.png",
+        "inferno": "https://files.catbox.moe/5vtpq1.png",
+        "zolo_cis": "https://files.catbox.moe/deicc2.png"
+    }
+    
     await call.message.edit_media(
-        media=InputMediaPhoto(media="https://files.catbox.moe/eqco0i.png", caption=cap),
+        media=InputMediaPhoto(media=photos[cheat], caption=cap),
         reply_markup=kb
     )
+
+# ---------- ОПЛАТА CRYPTOBOT ----------
+@dp.callback_query(F.data.startswith("crypto_"))
+async def crypto_payment(call: types.CallbackQuery, state: FSMContext):
+    await call.answer()
+    _, cheat, days = call.data.split("_")
+    
+    amount = USD_PRICES[cheat][days] if cheat == "so2" else PRICES[cheat][days] / 43  # Примерный курс
+    
+    invoice = await create_crypto_invoice(call.from_user.id, amount, days, cheat)
+    
+    if not invoice:
+        await call.message.edit_text("❌ Ошибка создания платежа")
+        return
+    
+    cursor.execute('''
+        INSERT INTO crypto_payments (payment_id, user_id, amount, days, product, created_at)
+        VALUES (?, ?, ?, ?, ?, ?)
+    ''', (str(invoice["invoice_id"]), call.from_user.id, amount, days, cheat, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+    conn.commit()
+    
+    cap = (f"💎 <b>Оплата CryptoBot</b>\n\n"
+           f"💰 <b>Сумма:</b> {amount}$\n"
+           f"📅 <b>Тариф:</b> {days} дней\n"
+           f"💎 <b>Чит:</b> {CHEAT_NAMES[cheat]}")
+    
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💎 Оплатить", url=invoice["pay_url"])],
+        [InlineKeyboardButton(text="✅ Проверить оплату", callback_data=f"check_crypto_{invoice['invoice_id']}")],
+        [InlineKeyboardButton(text="❌ Отмена", callback_data="start")]
+    ])
+    
+    photos = {
+        "so2": "https://files.catbox.moe/eqco0i.png",
+        "zolo": "https://files.catbox.moe/opz3nu.png",
+        "impact": "https://files.catbox.moe/9ztxkj.png",
+        "king": "https://files.catbox.moe/vyhlec.png",
+        "inferno": "https://files.catbox.moe/5vtpq1.png",
+        "zolo_cis": "https://files.catbox.moe/deicc2.png"
+    }
+    
+    await call.message.edit_media(
+        media=InputMediaPhoto(media=photos[cheat], caption=cap),
+        reply_markup=kb
+    )
+
+# ---------- ПРОВЕРКА CRYPTO ПЛАТЕЖА ----------
+@dp.callback_query(F.data.startswith("check_crypto_"))
+async def check_crypto_payment_callback(call: types.CallbackQuery, state: FSMContext):
+    await call.answer()
+    payment_id = int(call.data.replace("check_crypto_", ""))
+    
+    payment_info = await check_crypto_payment(payment_id)
+    
+    if payment_info and payment_info.get("status") == "paid":
+        cursor.execute('SELECT product, days FROM crypto_payments WHERE payment_id = ?', (str(payment_id),))
+        res = cursor.fetchone()
+        
+        if res:
+            product, days = res
+            target_id = call.from_user.id
+            expiry_date = (datetime.now() + timedelta(days=int(days))).strftime('%Y-%m-%d %H:%M:%S')
+            
+            cursor.execute('''
+                UPDATE users SET expiry_date = ?, product_name = ? WHERE user_id = ?
+            ''', (expiry_date, CHEAT_NAMES[product], target_id))
+            cursor.execute('UPDATE crypto_payments SET status = "paid" WHERE payment_id = ?', (str(payment_id),))
+            conn.commit()
+            
+            await call.message.edit_text(
+                f"✅ <b>Оплата подтверждена!</b>\n\n📅 Подписка до {expiry_date}"
+            )
+            
+            await bot.send_message(
+                ADMIN_ID,
+                f"💰 <b>Новый крипто-платёж</b>\n👤 {target_id}\n📅 {days} дней\n💎 {CHEAT_NAMES[product]}"
+            )
+    else:
+        await call.message.answer("⏳ Платёж ещё не подтверждён")
 
 # ---------- ОТПРАВКА ЧЕКА ----------
 @dp.callback_query(F.data == "send_receipt")
@@ -490,7 +560,7 @@ async def handle_receipt(message: types.Message, state: FSMContext):
     await bot.send_photo(
         ADMIN_ID,
         message.photo[-1].file_id,
-        caption=f"🔔 <b>Чек от {message.from_user.id}</b>\nТовар: {data['product']}\nТариф: {data['days']} дней",
+        caption=f"🔔 <b>Чек от {message.from_user.id}</b>\nТовар: {CHEAT_NAMES[data['product']]}\nТариф: {data['days']} дней",
         reply_markup=adm_kb
     )
     
@@ -550,7 +620,7 @@ async def admin_key_input(message: types.Message, state: FSMContext):
     cursor.execute('''
         INSERT OR REPLACE INTO users (user_id, expiry_date, product_name, subscribed_at, banned) 
         VALUES (?, ?, ?, COALESCE((SELECT subscribed_at FROM users WHERE user_id = ?), ?), 0)
-    ''', (target_id, expiry_date, data['product'], target_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+    ''', (target_id, expiry_date, CHEAT_NAMES[data['product']], target_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
     conn.commit()
     
     text = f"💎 <b>Заказ активирован!</b>\n\n📅 До: {expiry_date}\n🔑 Ключ: <code>{message.text}</code>"
@@ -625,30 +695,6 @@ async def ban_user(message: types.Message):
     if message.from_user.id != ADMIN_ID:
         return
     
-    args = message.text.split(maxsplit=1)
-    if len(args) < 2:
-        await message.answer("❌ /ban [id] [причина]")
-        return
-    
-    parts = args[1].split(maxsplit=1)
-    target_id = int(parts[0])
-    reason = parts[1] if len(parts) > 1 else "Нарушение правил"
-    
-    cursor.execute('UPDATE users SET banned = 1, ban_reason = ? WHERE user_id = ?', (reason, target_id))
-    conn.commit()
-    
-    try:
-        await bot.send_message(target_id, f"⛔️ <b>Вы заблокированы</b>\nПричина: {reason}")
-    except:
-        pass
-    
-    await message.answer(f"✅ Пользователь {target_id} заблокирован")
-
-@dp.message(Command("unban"))
-async def unban_user(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    
     args = message.text.split()
     if len(args) < 2:
         await message.answer("❌ /unban [id]")
@@ -685,9 +731,11 @@ async def users_count(message: types.Message):
 
 # ---------- ЗАПУСК ----------
 async def main():
-    print("🚀 Бот запущен!")
+    print("🚀 Plutonium Store запущен!")
     print(f"👑 Админ ID: {ADMIN_ID}")
+    print(f"💰 Доступно читов: {len(PRICES)}")
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
     asyncio.run(main())
+      
