@@ -310,29 +310,27 @@ async def pubg_menu(call: types.CallbackQuery):
         reply_markup=kb
     )
 
-# ---------- ПОКАЗ ЧИТА (ТОЛЬКО НАЗВАНИЕ + ЦЕНЫ) ----------
+# ---------- ПОКАЗ ЧИТА ----------
 async def show_cheat(call: types.CallbackQuery, cheat: str):
     await call.answer()
     
-    # Формируем описание: только название и цены
     desc = f"{CHEAT_NAMES[cheat]}\n\n💰 <b>Цены:</b>\n"
     
     for days, price in PRICES[cheat].items():
+        days_text = f"{days} дн." if days != "1" else "1 день"
         if cheat == "so2":
             uah, usd = price
-            desc += f"├ {days} дн.: {usd} / {uah}\n"
+            desc += f"├ {days_text}: {usd} / {uah}\n"
         else:
-            desc += f"├ {days} дн.: {price}\n"
+            desc += f"├ {days_text}: {price}\n"
     
-    desc += "\n💳 <b>Выберите способ оплаты:</b>"
+    desc += "\n💳 <b>Выберите период:</b>"
     
-    # Кнопки периодов
     buttons = []
     for days in PRICES[cheat].keys():
         days_text = f"{days} дн." if days != "1" else "1 день"
         buttons.append([InlineKeyboardButton(text=days_text, callback_data=f"period_{cheat}_{days}")])
     
-    # Кнопка назад
     game = "game_so2" if cheat == "so2" else "game_pubg"
     buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data=game)])
     
@@ -359,11 +357,15 @@ async def cheat_zolo_cis(call: types.CallbackQuery): await show_cheat(call, "zol
 
 # ---------- ВЫБОР ПЕРИОДА ----------
 @dp.callback_query(F.data.startswith("period_"))
-async def select_period(call: types.CallbackQuery):
+async def select_period(call: types.CallbackQuery, state: FSMContext):
     await call.answer()
-    _, cheat, days = call.data.split("_")
+    parts = call.data.split("_")
+    cheat = parts[1]
+    days = parts[2]
     
-    # Показываем выбранный период и кнопки оплаты
+    # Сохраняем данные в state
+    await state.update_data(product=cheat, days=days)
+    
     desc = f"{CHEAT_NAMES[cheat]}\n\n📅 {days} дн.\n"
     
     if cheat == "so2":
@@ -389,9 +391,11 @@ async def select_period(call: types.CallbackQuery):
 @dp.callback_query(F.data.startswith("bank_"))
 async def bank_payment(call: types.CallbackQuery, state: FSMContext):
     await call.answer()
-    _, cheat, days = call.data.split("_")
+    parts = call.data.split("_")
+    cheat = parts[1]
+    days = parts[2]
     
-    # Сохраняем данные
+    # Обновляем данные в state
     await state.update_data(product=cheat, days=days, method="bank")
     
     # Получаем цену
@@ -421,16 +425,17 @@ async def bank_payment(call: types.CallbackQuery, state: FSMContext):
 @dp.callback_query(F.data.startswith("crypto_"))
 async def crypto_payment(call: types.CallbackQuery, state: FSMContext):
     await call.answer()
-    _, cheat, days = call.data.split("_")
+    parts = call.data.split("_")
+    cheat = parts[1]
+    days = parts[2]
     
     # Получаем цену в USD
     if cheat == "so2":
         _, usd = PRICES[cheat][days]
         amount = float(usd.replace("$", ""))
     else:
-        # Для других читов конвертируем примерно
         price_str = PRICES[cheat][days].replace(" грн", "")
-        amount = round(int(price_str) / 43, 2)  # Примерный курс
+        amount = round(int(price_str) / 43, 2)
     
     invoice = await create_crypto_invoice(call.from_user.id, amount, days, cheat)
     
@@ -438,7 +443,6 @@ async def crypto_payment(call: types.CallbackQuery, state: FSMContext):
         await call.message.edit_text("❌ Ошибка создания платежа", reply_markup=get_back_button("start"))
         return
     
-    # Сохраняем в БД
     cursor.execute('''
         INSERT INTO crypto_payments (payment_id, user_id, amount, days, product, created_at)
         VALUES (?, ?, ?, ?, ?, ?)
@@ -498,7 +502,16 @@ async def check_crypto_payment_callback(call: types.CallbackQuery):
 # ---------- ОТПРАВКА ЧЕКА ----------
 @dp.callback_query(F.data == "send_receipt")
 async def receipt_callback(call: types.CallbackQuery, state: FSMContext):
-    await call.answer()
+    # Проверяем, есть ли данные в state
+    data = await state.get_data()
+    if not data.get('product') or not data.get('days'):
+        await call.message.edit_text(
+            "❌ Ошибка: данные заказа утеряны. Начните заново.",
+            reply_markup=get_back_button("start")
+        )
+        await state.clear()
+        return
+    
     await call.message.answer("📸 <b>Отправьте скриншот чека</b> (одним фото)")
     await state.set_state(OrderState.waiting_for_receipt)
 
@@ -516,7 +529,6 @@ async def handle_receipt(message: types.Message, state: FSMContext):
         [InlineKeyboardButton(text="❌ Отклонить", callback_data=f"adm_no_{message.from_user.id}")]
     ])
     
-    # Отправляем чек админу
     await bot.send_photo(
         ADMIN_ID,
         message.photo[-1].file_id,
@@ -536,7 +548,6 @@ async def admin_decision(call: types.CallbackQuery, state: FSMContext):
     
     parts = call.data.split("_")
     if parts[1] == "ok":
-        # Сохраняем данные заказа
         await state.update_data(
             target_id=int(parts[2]),
             product=parts[3],
@@ -569,7 +580,6 @@ async def admin_file_input(message: types.Message, state: FSMContext):
     else:
         file_text = message.text
     
-    # Сохраняем файл и просим ключ
     await state.update_data(file=file_id, file_text=file_text)
     await message.answer("🔑 <b>Введите ключ активации</b>")
     await state.set_state(OrderState.waiting_for_admin_key)
@@ -586,14 +596,12 @@ async def admin_key_input(message: types.Message, state: FSMContext):
     
     expiry_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
     
-    # Сохраняем подписку в БД
     cursor.execute('''
         INSERT OR REPLACE INTO users (user_id, expiry_date, product_name, subscribed_at, banned) 
         VALUES (?, ?, ?, COALESCE((SELECT subscribed_at FROM users WHERE user_id = ?), ?), 0)
     ''', (target_id, expiry_date, CHEAT_NAMES[data['product']], target_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
     conn.commit()
     
-    # Формируем сообщение пользователю
     text = (f"✅ <b>Заказ активирован!</b>\n\n"
             f"📅 <b>Действует до:</b> {expiry_date}\n"
             f"🔑 <b>Ключ:</b> <code>{message.text}</code>\n\n"
