@@ -22,14 +22,14 @@ CRYPTO_API = "https://pay.crypt.bot/api"
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
-# --- ЦЕНЫ ДЛЯ СТАНДОФФ (ОСТАЁТСЯ) ---
+# --- ЦЕНЫ ДЛЯ СТАНДОФФ ---
 SO2_PRICES = {
     "7": {"uah": 150, "usd": 3.5},
     "30": {"uah": 300, "usd": 7},
     "90": {"uah": 700, "usd": 16.5}
 }
 
-# --- НОВЫЕ ЦЕНЫ ДЛЯ PUBG ЧИТОВ (ТОЛЬКО ГРИВНЫ) ---
+# --- ЦЕНЫ ДЛЯ PUBG ЧИТОВ ---
 PUBG_PRICES = {
     "zolo": {"1": 85, "3": 180, "7": 325, "14": 400, "30": 690, "60": 1000},
     "impact": {"1": 115, "7": 480, "30": 1170},
@@ -88,7 +88,7 @@ def get_main_keyboard():
     ])
     return kb
 
-# --- ФУНКЦИИ CRYPTOBOT (ТЕ ЖЕ) ---
+# --- ФУНКЦИИ CRYPTOBOT ---
 async def create_crypto_invoice(user_id, amount, days, product):
     url = f"{CRYPTO_API}/createInvoice"
     headers = {"Crypto-Pay-API-Token": CRYPTO_TOKEN}
@@ -134,7 +134,7 @@ async def check_ban(user_id):
         return True, res[1]
     return False, None
 
-# ---------- ГЛАВНОЕ МЕНЮ (СТАРТ) ----------
+# ---------- ГЛАВНОЕ МЕНЮ ----------
 @dp.message(Command("start"))
 async def start_command(message: types.Message, state: FSMContext):
     await state.clear()
@@ -216,7 +216,7 @@ async def profile_callback(call: types.CallbackQuery):
         reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data="start")]])
     )
 
-# ---------- СТАТУС ПО ----------
+# ---------- СТАТУС ----------
 @dp.callback_query(F.data == "check_status")
 async def check_status(call: types.CallbackQuery):
     await call.answer()
@@ -256,7 +256,7 @@ async def buy_callback(call: types.CallbackQuery):
         reply_markup=kb
     )
 
-# ---------- МЕНЮ STANDOFF 2 (КАК БЫЛО) ----------
+# ---------- STANDOFF 2 ----------
 @dp.callback_query(F.data == "so2_menu")
 async def so2_callback(call: types.CallbackQuery):
     await call.answer()
@@ -279,9 +279,9 @@ async def plut_info_callback(call: types.CallbackQuery):
             "• Aimbot\n• Wallhack\n• ESP\n• И многое другое")
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="7 дней - 150₴ / 3.5$", callback_data="so2_7"),
-         InlineKeyboardButton(text="30 дней - 300₴ / 7$", callback_data="so2_30")],
-        [InlineKeyboardButton(text="90 дней - 700₴ / 16.5$", callback_data="so2_90")],
+        [InlineKeyboardButton(text="7 дней - 150₴ / 3.5$", callback_data="pay_bank_so2_7"),
+         InlineKeyboardButton(text="30 дней - 300₴ / 7$", callback_data="pay_bank_so2_30")],
+        [InlineKeyboardButton(text="90 дней - 700₴ / 16.5$", callback_data="pay_bank_so2_90")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="so2_menu")]
     ])
     await call.message.edit_media(
@@ -289,7 +289,7 @@ async def plut_info_callback(call: types.CallbackQuery):
         reply_markup=kb
     )
 
-# ---------- МЕНЮ PUBG ----------
+# ---------- PUBG ----------
 @dp.callback_query(F.data == "pubg_menu")
 async def pubg_menu(call: types.CallbackQuery):
     await call.answer()
@@ -303,7 +303,7 @@ async def pubg_menu(call: types.CallbackQuery):
         reply_markup=kb
     )
 
-# ---------- ANDROID МЕНЮ (ВСЕ ЧИТЫ) ----------
+# ---------- ANDROID МЕНЮ ----------
 @dp.callback_query(F.data == "android_menu")
 async def android_menu(call: types.CallbackQuery):
     await call.answer()
@@ -321,7 +321,7 @@ async def android_menu(call: types.CallbackQuery):
         reply_markup=kb
     )
 
-# ---------- ФУНКЦИЯ ДЛЯ ОПИСАНИЙ ЧИТОВ ----------
+# ---------- ФУНКЦИЯ ОПИСАНИЙ ----------
 def get_pubg_description(cheat: str) -> str:
     desc = {
         "zolo": "🔥 <b>Zolo Cheat</b>\n\n"
@@ -348,7 +348,7 @@ def get_pubg_description(cheat: str) -> str:
     }
     return desc.get(cheat, "Описание временно отсутствует")
 
-# ---------- ОБРАБОТЧИКИ ДЛЯ PUBG ЧИТОВ ----------
+# ---------- ZOLO ----------
 @dp.callback_query(F.data == "pubg_zolo")
 async def pubg_zolo(call: types.CallbackQuery):
     await call.answer()
@@ -367,6 +367,7 @@ async def pubg_zolo(call: types.CallbackQuery):
         reply_markup=kb
     )
 
+# ---------- IMPACT ----------
 @dp.callback_query(F.data == "pubg_impact")
 async def pubg_impact(call: types.CallbackQuery):
     await call.answer()
@@ -382,6 +383,7 @@ async def pubg_impact(call: types.CallbackQuery):
         reply_markup=kb
     )
 
+# ---------- KING ----------
 @dp.callback_query(F.data == "pubg_king")
 async def pubg_king(call: types.CallbackQuery):
     await call.answer()
@@ -397,6 +399,7 @@ async def pubg_king(call: types.CallbackQuery):
         reply_markup=kb
     )
 
+# ---------- INFERNO ----------
 @dp.callback_query(F.data == "pubg_inferno")
 async def pubg_inferno(call: types.CallbackQuery):
     await call.answer()
@@ -415,6 +418,7 @@ async def pubg_inferno(call: types.CallbackQuery):
         reply_markup=kb
     )
 
+# ---------- ZOLO CIS ----------
 @dp.callback_query(F.data == "pubg_zolo_cis")
 async def pubg_zolo_cis(call: types.CallbackQuery):
     await call.answer()
@@ -433,17 +437,16 @@ async def pubg_zolo_cis(call: types.CallbackQuery):
         reply_markup=kb
     )
 
-# ---------- ОБРАБОТЧИКИ ОПЛАТЫ (ДЛЯ ВСЕХ ЧИТОВ) ----------
+# ---------- ОБРАБОТЧИК ОПЛАТЫ ----------
 @dp.callback_query(F.data.startswith("pay_bank_"))
 async def handle_payment(call: types.CallbackQuery, state: FSMContext):
     await call.answer()
     parts = call.data.replace("pay_bank_", "").split("_")
-    product = parts[0]  # zolo, impact, king, inferno, zolo_cis, so2
+    product = parts[0]
     days = parts[1]
     
     await state.update_data(product=product, days=days, method="bank")
     
-    # Определяем цену
     if product == "so2":
         price = SO2_PRICES[days]['uah']
     else:
@@ -464,5 +467,227 @@ async def handle_payment(call: types.CallbackQuery, state: FSMContext):
         reply_markup=kb
     )
 
-# ---------- ОСТАЛЬНЫЕ ОБРАБОТЧИКИ (ЧЕКИ, АДМИНКА) ОСТАЮТСЯ БЕЗ ИЗМЕНЕНИЙ ----------
-# ... (весь остальной код с обработкой чеков, админ-командами и т.д.)
+# ---------- ОТПРАВКА ЧЕКА ----------
+@dp.callback_query(F.data == "send_receipt")
+async def receipt_callback(call: types.CallbackQuery, state: FSMContext):
+    await call.answer()
+    await call.message.answer("📸 <b>Отправьте скриншот чека</b>")
+    await state.set_state(OrderState.waiting_for_receipt)
+
+@dp.message(OrderState.waiting_for_receipt)
+async def handle_receipt(message: types.Message, state: FSMContext):
+    data = await state.get_data()
+    
+    if not message.photo:
+        await message.answer("❌ Отправьте фото чека")
+        return
+    
+    adm_kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="✅ Одобрить", callback_data=f"adm_ok_{message.from_user.id}_{data['product']}_{data['days']}")],
+        [InlineKeyboardButton(text="❌ Отклонить", callback_data=f"adm_no_{message.from_user.id}")]
+    ])
+    
+    await bot.send_photo(
+        ADMIN_ID,
+        message.photo[-1].file_id,
+        caption=f"🔔 <b>Чек от {message.from_user.id}</b>\nТовар: {data['product']}\nТариф: {data['days']} дней",
+        reply_markup=adm_kb
+    )
+    
+    await message.answer("✅ Чек отправлен!")
+    await state.clear()
+
+# ---------- РЕШЕНИЕ АДМИНА ----------
+@dp.callback_query(F.data.startswith("adm_"))
+async def admin_decision(call: types.CallbackQuery, state: FSMContext):
+    if call.from_user.id != ADMIN_ID:
+        await call.answer("⛔️ Доступ запрещен")
+        return
+    
+    parts = call.data.split("_")
+    if parts[1] == "ok":
+        await state.update_data(target_id=int(parts[2]), product=parts[3], days=parts[4])
+        await call.message.answer("📎 <b>Отправьте файл</b>")
+        await state.set_state(OrderState.waiting_for_admin_file)
+        await call.answer("✅ Одобрено")
+    else:
+        await bot.send_message(int(parts[2]), "❌ Оплата отклонена")
+        await call.message.delete()
+        await call.answer("❌ Отклонено")
+
+# ---------- ФАЙЛ ОТ АДМИНА ----------
+@dp.message(OrderState.waiting_for_admin_file)
+async def admin_file_input(message: types.Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    file_id = None
+    file_text = None
+    
+    if message.document:
+        file_id = message.document.file_id
+    elif message.photo:
+        file_id = message.photo[-1].file_id
+    else:
+        file_text = message.text
+    
+    await state.update_data(file=file_id, file_text=file_text)
+    await message.answer("🔑 <b>Введите ключ</b>")
+    await state.set_state(OrderState.waiting_for_admin_key)
+
+# ---------- КЛЮЧ ОТ АДМИНА ----------
+@dp.message(OrderState.waiting_for_admin_key)
+async def admin_key_input(message: types.Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    data = await state.get_data()
+    target_id = int(data['target_id'])
+    days = int(data['days'])
+    
+    expiry_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
+    
+    cursor.execute('''
+        INSERT OR REPLACE INTO users (user_id, expiry_date, product_name, subscribed_at, banned) 
+        VALUES (?, ?, ?, COALESCE((SELECT subscribed_at FROM users WHERE user_id = ?), ?), 0)
+    ''', (target_id, expiry_date, data['product'], target_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+    conn.commit()
+    
+    text = f"💎 <b>Заказ активирован!</b>\n\n📅 До: {expiry_date}\n🔑 Ключ: <code>{message.text}</code>"
+    
+    try:
+        if data.get('file'):
+            await bot.send_document(target_id, data['file'], caption=text)
+        else:
+            await bot.send_message(target_id, text)
+        
+        await message.answer("✅ Готово!")
+    except Exception as e:
+        await message.answer(f"❌ Ошибка: {e}")
+    
+    await state.clear()
+
+# ---------- АДМИН-КОМАНДЫ ----------
+@dp.message(Command("set_status"))
+async def set_status(message: types.Message):
+    if message.from_user.id != ADMIN_ID: 
+        return
+    
+    new_status = message.text.replace("/set_status ", "").strip()
+    cursor.execute('UPDATE settings SET value = ? WHERE key = "cheat_status"', (new_status,))
+    conn.commit()
+    await message.answer(f"✅ Статус обновлен на: {new_status}")
+
+@dp.message(Command("broadcast"))
+async def broadcast_start(message: types.Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    await message.answer("📢 <b>Отправь сообщение для рассылки</b>")
+    await state.set_state(OrderState.broadcast_text)
+
+@dp.message(OrderState.broadcast_text)
+async def broadcast_send(message: types.Message, state: FSMContext):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    cursor.execute('SELECT user_id FROM users WHERE banned = 0')
+    users = cursor.fetchall()
+    
+    if not users:
+        await message.answer("📭 Нет пользователей")
+        await state.clear()
+        return
+    
+    status = await message.answer(f"⏳ Рассылка {len(users)} пользователям...")
+    
+    success = 0
+    for (user_id,) in users:
+        try:
+            if message.text:
+                await bot.send_message(user_id, message.text)
+            elif message.photo:
+                await bot.send_photo(user_id, message.photo[-1].file_id, caption=message.caption)
+            elif message.video:
+                await bot.send_video(user_id, message.video.file_id, caption=message.caption)
+            elif message.document:
+                await bot.send_document(user_id, message.document.file_id, caption=message.caption)
+            success += 1
+            await asyncio.sleep(0.05)
+        except:
+            pass
+    
+    await status.edit_text(f"✅ Разослано: {success}/{len(users)}")
+    await state.clear()
+
+@dp.message(Command("ban"))
+async def ban_user(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    args = message.text.split(maxsplit=1)
+    if len(args) < 2:
+        await message.answer("❌ /ban [id] [причина]")
+        return
+    
+    parts = args[1].split(maxsplit=1)
+    target_id = int(parts[0])
+    reason = parts[1] if len(parts) > 1 else "Нарушение правил"
+    
+    cursor.execute('UPDATE users SET banned = 1, ban_reason = ? WHERE user_id = ?', (reason, target_id))
+    conn.commit()
+    
+    try:
+        await bot.send_message(target_id, f"⛔️ <b>Вы заблокированы</b>\nПричина: {reason}")
+    except:
+        pass
+    
+    await message.answer(f"✅ Пользователь {target_id} заблокирован")
+
+@dp.message(Command("unban"))
+async def unban_user(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    args = message.text.split()
+    if len(args) < 2:
+        await message.answer("❌ /unban [id]")
+        return
+    
+    target_id = int(args[1])
+    
+    cursor.execute('UPDATE users SET banned = 0, ban_reason = NULL WHERE user_id = ?', (target_id,))
+    conn.commit()
+    
+    try:
+        await bot.send_message(target_id, f"✅ <b>Вы разблокированы</b>")
+    except:
+        pass
+    
+    await message.answer(f"✅ Пользователь {target_id} разблокирован")
+
+@dp.message(Command("users"))
+async def users_count(message: types.Message):
+    if message.from_user.id != ADMIN_ID:
+        return
+    
+    cursor.execute('SELECT COUNT(*) FROM users')
+    total = cursor.fetchone()[0]
+    
+    cursor.execute('SELECT COUNT(*) FROM users WHERE banned = 1')
+    banned = cursor.fetchone()[0]
+    
+    cursor.execute('SELECT COUNT(*) FROM users WHERE expiry_date > ?', 
+                  (datetime.now().strftime('%Y-%m-%d %H:%M:%S'),))
+    active = cursor.fetchone()[0]
+    
+    await message.answer(f"👥 Всего: {total}\n✅ Активных: {active}\n⛔ Забанено: {banned}")
+
+# ---------- ЗАПУСК ----------
+async def main():
+    print("🚀 Бот запущен!")
+    print(f"👑 Админ ID: {ADMIN_ID}")
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
