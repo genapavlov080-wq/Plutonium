@@ -22,7 +22,7 @@ CRYPTO_API = "https://pay.crypt.bot/api"
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
-# --- ЦЕНЫ (ТОЛЬКО ГРИВНЫ И ДОЛЛАРЫ ГДЕ НУЖНО) ---
+# --- ЦЕНЫ ---
 PRICES = {
     "so2": {"7": ("150 грн", "3.5$"), "30": ("300 грн", "7$"), "90": ("700 грн", "16.5$")},
     "zolo": {"1": "85 грн", "3": "180 грн", "7": "325 грн", "14": "400 грн", "30": "690 грн", "60": "1000 грн"},
@@ -32,7 +32,7 @@ PRICES = {
     "zolo_cis": {"1": "70 грн", "3": "150 грн", "7": "250 грн", "14": "350 грн", "30": "700 грн", "60": "900 грн"}
 }
 
-# --- USD ЦЕНЫ ДЛЯ CRYPTOBOT (ТОЛЬКО ДЛЯ so2) ---
+# --- USD ЦЕНЫ ДЛЯ CRYPTOBOT ---
 USD_PRICES = {
     "so2": {"7": 3.5, "30": 7, "90": 16.5}
 }
@@ -199,7 +199,7 @@ async def start_callback(call: types.CallbackQuery, state: FSMContext):
         reply_markup=get_main_keyboard()
     )
 
-# ---------- ПРОФИЛЬ ----------
+# ---------- ПРОФИЛЬ (ИСПРАВЛЕН) ----------
 @dp.callback_query(F.data == "profile")
 async def profile_callback(call: types.CallbackQuery):
     await call.answer()
@@ -216,24 +216,37 @@ async def profile_callback(call: types.CallbackQuery):
     time_left = "Нет активной подписки"
     product = "Нет"
     
-    if res and res[0]:
+    if res and res[0] and res[0] is not None:
         try:
             expiry_date = datetime.strptime(res[0], '%Y-%m-%d %H:%M:%S')
             diff = expiry_date - datetime.now()
+            
             if diff.total_seconds() > 0:
                 days = diff.days
                 hours = diff.seconds // 3600
                 minutes = (diff.seconds % 3600) // 60
-                time_left = f"{days} дн. {hours} ч. {minutes} мин."
+                
+                if days > 0:
+                    time_left = f"{days} дн. {hours} ч."
+                else:
+                    time_left = f"{hours} ч. {minutes} мин."
+                
                 product = res[1] if res[1] else "Plutonium"
             else:
-                time_left = "Истекла"
-                cursor.execute('UPDATE users SET expiry_date = NULL, product_name = NULL WHERE user_id = ?', (user_id,))
-                conn.commit()
-        except:
-            time_left = "Ошибка"
+                time_left = "❌ Истекла"
+                product = res[1] if res[1] else "Plutonium"
+        except Exception as e:
+            print(f"Error parsing date: {e}")
+            time_left = "Ошибка формата"
+            product = res[1] if res[1] else "Plutonium"
     
-    cap = f"👤 <b>Профиль</b>\n\n🆔 ID: <code>{user_id}</code>\n📦 Товар: {product}\n⏳ Осталось: <b>{time_left}</b>"
+    cap = (
+        f"👤 <b>Личный кабинет</b>\n\n"
+        f"🆔 <b>ID:</b> <code>{user_id}</code>\n"
+        f"📦 <b>Товар:</b> {product}\n"
+        f"⏳ <b>Осталось:</b> {time_left}"
+    )
+    
     await call.message.edit_media(
         media=InputMediaPhoto(media="https://files.catbox.moe/5h6fr0.png", caption=cap), 
         reply_markup=get_back_button("start")
@@ -363,7 +376,6 @@ async def select_period(call: types.CallbackQuery, state: FSMContext):
     cheat = parts[1]
     days = parts[2]
     
-    # Сохраняем данные в state
     await state.update_data(product=cheat, days=days)
     
     desc = f"{CHEAT_NAMES[cheat]}\n\n📅 {days} дн.\n"
@@ -395,10 +407,8 @@ async def bank_payment(call: types.CallbackQuery, state: FSMContext):
     cheat = parts[1]
     days = parts[2]
     
-    # Обновляем данные в state
     await state.update_data(product=cheat, days=days, method="bank")
     
-    # Получаем цену
     if cheat == "so2":
         uah, _ = PRICES[cheat][days]
         price = uah
@@ -429,7 +439,6 @@ async def crypto_payment(call: types.CallbackQuery, state: FSMContext):
     cheat = parts[1]
     days = parts[2]
     
-    # Получаем цену в USD
     if cheat == "so2":
         _, usd = PRICES[cheat][days]
         amount = float(usd.replace("$", ""))
@@ -502,7 +511,6 @@ async def check_crypto_payment_callback(call: types.CallbackQuery):
 # ---------- ОТПРАВКА ЧЕКА ----------
 @dp.callback_query(F.data == "send_receipt")
 async def receipt_callback(call: types.CallbackQuery, state: FSMContext):
-    # Проверяем, есть ли данные в state
     data = await state.get_data()
     if not data.get('product') or not data.get('days'):
         await call.message.edit_text(
@@ -596,10 +604,13 @@ async def admin_key_input(message: types.Message, state: FSMContext):
     
     expiry_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
     
+    # Получаем правильное название товара
+    product_name = CHEAT_NAMES.get(data['product'], "Plutonium")
+    
     cursor.execute('''
         INSERT OR REPLACE INTO users (user_id, expiry_date, product_name, subscribed_at, banned) 
         VALUES (?, ?, ?, COALESCE((SELECT subscribed_at FROM users WHERE user_id = ?), ?), 0)
-    ''', (target_id, expiry_date, CHEAT_NAMES[data['product']], target_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+    ''', (target_id, expiry_date, product_name, target_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
     conn.commit()
     
     text = (f"✅ <b>Заказ активирован!</b>\n\n"
