@@ -10,7 +10,9 @@ from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
 from aiogram.enums import ParseMode
 from aiogram.client.default import DefaultBotProperties 
+from aiogram.types import WebAppInfo
 
+WEBAPP_URL = "https://rocket-online.vercel.app"
 TOKEN = "8522948833:AAFPgQz77GDY2YafZRtNMM9ilcxZ65_2wus"
 ADMIN_ID = 1471307057
 CARD = "4441111008011946"
@@ -97,11 +99,15 @@ class OrderState(StatesGroup):
 
 # --- КЛАВИАТУРЫ ---
 def get_main_keyboard():
+    # Посилання на твій Mini App
+    WEBAPP_URL = "https://rocket-online.vercel.app"
+    
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="🔑 Купить ключ", callback_data="buy_key"), 
          InlineKeyboardButton(text="👤 Мой профиль", callback_data="profile")],
         [InlineKeyboardButton(text="💬 Наши отзывы", callback_data="show_reviews"), 
          InlineKeyboardButton(text="📊 Статус ПО", callback_data="check_status")],
+        [InlineKeyboardButton(text="🛒 Plutonium Store", web_app=WebAppInfo(url=WEBAPP_URL))],  # ← НОВА КНОПКА
         [InlineKeyboardButton(text="🆘 Техподдержка", url="https://t.me/IllyaGarant")]
     ])
     return kb
@@ -110,7 +116,6 @@ def get_back_button(target: str):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⬅️ Назад", callback_data=target)]
     ])
-
 # --- ФУНКЦИИ CRYPTOBOT ---
 async def create_crypto_invoice(user_id, amount, days, product):
     url = f"{CRYPTO_API}/createInvoice"
