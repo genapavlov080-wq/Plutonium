@@ -1,55 +1,54 @@
-import asyncio
+import os
 import sqlite3
-import requests
 import json
+import logging
+import urllib.request
+import time
+import threading
+import requests
 from datetime import datetime, timedelta
-from aiogram import Bot, Dispatcher, F, types
-from aiogram.filters import Command
-from aiogram.fsm.context import FSMContext
-from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton, InputMediaPhoto
-from aiogram.enums import ParseMode
-from aiogram.client.default import DefaultBotProperties 
-from aiogram.types import WebAppInfo
 
-WEBAPP_URL = "https://rocket-online.vercel.app"
-TOKEN = "8522948833:AAFPgQz77GDY2YafZRtNMM9ilcxZ65_2wus"
+# --- НАСТРОЙКИ ---
+BOT_TOKEN = "8522948833:AAFPgQz77GDY2YafZRtNMM9ilcxZ65_2wus"
 ADMIN_ID = 1471307057
 CARD = "4441111008011946"
-
-# --- СБРОС ВЕБХУКА ---
-import requests as req
-try:
-    req.post(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook?drop_pending_updates=true", timeout=5)
-except:
-    pass
+WEBAPP_URL = "https://rocket-online.vercel.app"
+API_URL = f"https://api.telegram.org/bot{BOT_TOKEN}"
 
 # CryptoBot API
 CRYPTO_TOKEN = "466345:AADMm3mzlC6KGJmwt3r771bUPIx40CMEKhQ"
 CRYPTO_API = "https://pay.crypt.bot/api"
 
-bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
-dp = Dispatcher()
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# --- СБРОС ВЕБХУКА ---
+try:
+    urllib.request.urlopen(f"{API_URL}/deleteWebhook?drop_pending_updates=true", timeout=5)
+except:
+    pass
 
 # --- ФУНКЦИЯ ДЛЯ TG PREMIUM ЭМОДЗИ (как в файловом боте) ---
 def em(emoji_id: str, char: str = "●") -> str:
     return f'<tg-emoji emoji-id="{emoji_id}">{char}</tg-emoji>'
 
-# --- КНОПКИ (как в файловом боте) ---
+# --- КНОПКИ ---
 def btn(text: str, callback: str, emoji_id: str = None):
+    button = {"text": text, "callback_data": callback}
     if emoji_id:
-        return InlineKeyboardButton(text=text, callback_data=callback, icon_custom_emoji_id=emoji_id)
-    return InlineKeyboardButton(text=text, callback_data=callback)
+        button["icon_custom_emoji_id"] = emoji_id
+    return button
 
 def url_btn(text: str, url: str, emoji_id: str = None):
+    button = {"text": text, "url": url}
     if emoji_id:
-        return InlineKeyboardButton(text=text, url=url, icon_custom_emoji_id=emoji_id)
-    return InlineKeyboardButton(text=text, url=url)
+        button["icon_custom_emoji_id"] = emoji_id
+    return button
 
 def back_btn(target: str):
-    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=target)]])
+    return {"inline_keyboard": [[{"text": "⬅️ Назад", "callback_data": target}]]}
 
-# --- ID ЭМОДЗИ (все твои) ---
+# --- ID ЭМОДЗИ ---
 EMOJI = {
     "fire": "5339472242529045815",
     "status": "5208846279714560254",
@@ -124,7 +123,8 @@ CHEAT_PHOTOS = {
 }
 
 # --- БАЗА ДАННЫХ ---
-conn = sqlite3.connect('users.db', check_same_thread=False)
+conn = sqlite3.connect('users.db', timeout=30, check_same_thread=False)
+conn.row_factory = sqlite3.Row
 cursor = conn.cursor()
 
 cursor.execute('''
@@ -153,81 +153,97 @@ cursor.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value
 cursor.execute('INSERT OR IGNORE INTO settings VALUES ("cheat_status", "🟢 UNDETECTED")')
 conn.commit()
 
-# --- СОСТОЯНИЯ ---
-class OrderState(StatesGroup):
-    waiting_for_receipt = State()
-    waiting_for_admin_file = State()
-    waiting_for_admin_key = State()
-    broadcast_text = State()
+# --- ФУНКЦИИ API ---
+def api(method, data=None):
+    url = f"{API_URL}/{method}"
+    try:
+        req = urllib.request.Request(
+            url,
+            data=json.dumps(data).encode() if data else None,
+            headers={'Content-Type': 'application/json'} if data else {},
+            method='POST'
+        )
+        with urllib.request.urlopen(req, timeout=30) as response:
+            return json.loads(response.read().decode())
+    except Exception as e:
+        logger.error(f"API error: {e}")
+        return {'ok': False}
+
+def send_message(chat_id, text, reply_markup=None):
+    data = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
+    if reply_markup:
+        data["reply_markup"] = json.dumps(reply_markup)
+    return api("sendMessage", data)
+
+def send_photo(chat_id, photo, caption=None, reply_markup=None):
+    data = {"chat_id": chat_id, "photo": photo, "parse_mode": "HTML"}
+    if caption:
+        data["caption"] = caption
+    if reply_markup:
+        data["reply_markup"] = json.dumps(reply_markup)
+    return api("sendPhoto", data)
+
+def edit_message_caption(chat_id, message_id, caption, reply_markup=None):
+    data = {"chat_id": chat_id, "message_id": message_id, "caption": caption, "parse_mode": "HTML"}
+    if reply_markup:
+        data["reply_markup"] = json.dumps(reply_markup)
+    return api("editMessageCaption", data)
+
+def get_updates(offset=None, timeout=30):
+    data = {"timeout": timeout}
+    if offset is not None:
+        data["offset"] = offset
+    return api("getUpdates", data)
+
+def answer_callback(callback_id, text=None, show_alert=False):
+    data = {"callback_query_id": callback_id}
+    if text:
+        data["text"] = text
+    if show_alert:
+        data["show_alert"] = True
+    return api("answerCallbackQuery", data)
+
+# --- ХРАНИЛИЩА ---
+waiting = {}
+processed = set()
+
+# --- ОСНОВНЫЕ КНОПКИ ---
+def get_main_keyboard():
+    return {
+        "inline_keyboard": [
+            [btn("Купить ключ", "buy_key", EMOJI['buy']),
+             btn("Мой профиль", "profile", EMOJI['profile'])],
+            [btn("Наши отзывы", "show_reviews", EMOJI['reviews']),
+             btn("Статус ПО", "check_status", EMOJI['status'])],
+            [url_btn("Plutonium Store", WEBAPP_URL, EMOJI['plutonium'])],
+            [url_btn("Техподдержка", "https://t.me/IllyaGarant", EMOJI['support'])]
+        ]
+    }
 
 # ---------- СТАРТ ----------
-@dp.message(Command("start"))
-async def start_command(message: types.Message, state: FSMContext):
-    await state.clear()
-    user_id = message.from_user.id
-    
+def handle_start(chat_id, user_id):
     banned = cursor.execute('SELECT banned FROM users WHERE user_id = ?', (user_id,)).fetchone()
-    if banned and banned[0]:
-        await message.answer("⛔ Вы заблокированы")
+    if banned and banned['banned']:
+        send_message(chat_id, "⛔ Вы заблокированы")
         return
     
     cursor.execute('INSERT OR IGNORE INTO users (user_id, subscribed_at) VALUES (?, ?)', 
                   (user_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
     conn.commit()
     
-    status = cursor.execute('SELECT value FROM settings WHERE key="cheat_status"').fetchone()[0]
+    status = cursor.execute('SELECT value FROM settings WHERE key="cheat_status"').fetchone()['value']
     
     text = (f"{em(EMOJI['fire'], '🔥')} <b>Plutonium Store</b>\n\n"
             f"{em(EMOJI['status'], '📈')} Статус ПО: {status}\n\n"
             f"{em(EMOJI['welcome'], '👋')} Добро пожаловать!")
     
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [btn("Купить ключ", "buy_key", EMOJI['buy']),
-         btn("Мой профиль", "profile", EMOJI['profile'])],
-        [btn("Наши отзывы", "show_reviews", EMOJI['reviews']),
-         btn("Статус ПО", "check_status", EMOJI['status'])],
-        [url_btn("Plutonium Store", WEBAPP_URL, EMOJI['plutonium'])],
-        [url_btn("Техподдержка", "https://t.me/IllyaGarant", EMOJI['support'])]
-    ])
-    
-    await message.answer_photo(photo="https://files.catbox.moe/916cwt.png", caption=text, reply_markup=kb)
-
-@dp.callback_query(F.data == "start")
-async def start_callback(call: types.CallbackQuery, state: FSMContext):
-    await state.clear()
-    await call.answer()
-    
-    banned = cursor.execute('SELECT banned FROM users WHERE user_id = ?', (call.from_user.id,)).fetchone()
-    if banned and banned[0]:
-        await call.message.edit_text("⛔ Вы заблокированы")
-        return
-    
-    status = cursor.execute('SELECT value FROM settings WHERE key="cheat_status"').fetchone()[0]
-    
-    text = (f"{em(EMOJI['fire'], '🔥')} <b>Plutonium Store</b>\n\n"
-            f"{em(EMOJI['status'], '📈')} Статус ПО: {status}\n\n"
-            f"{em(EMOJI['welcome'], '👋')} Добро пожаловать!")
-    
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [btn("Купить ключ", "buy_key", EMOJI['buy']),
-         btn("Мой профиль", "profile", EMOJI['profile'])],
-        [btn("Наши отзывы", "show_reviews", EMOJI['reviews']),
-         btn("Статус ПО", "check_status", EMOJI['status'])],
-        [url_btn("Plutonium Store", WEBAPP_URL, EMOJI['plutonium'])],
-        [url_btn("Техподдержка", "https://t.me/IllyaGarant", EMOJI['support'])]
-    ])
-    
-    await call.message.edit_media(media=InputMediaPhoto(media="https://files.catbox.moe/916cwt.png", caption=text), reply_markup=kb)
+    send_photo(chat_id, "https://files.catbox.moe/916cwt.png", text, get_main_keyboard())
 
 # ---------- ПРОФИЛЬ ----------
-@dp.callback_query(F.data == "profile")
-async def profile_callback(call: types.CallbackQuery):
-    await call.answer()
-    user_id = call.from_user.id
-    
+def handle_profile(chat_id, user_id, message_id):
     banned = cursor.execute('SELECT banned FROM users WHERE user_id = ?', (user_id,)).fetchone()
-    if banned and banned[0]:
-        await call.message.edit_text("⛔ Вы заблокированы")
+    if banned and banned['banned']:
+        send_message(chat_id, "⛔ Вы заблокированы")
         return
     
     res = cursor.execute('SELECT expiry_date, product_name, last_key FROM users WHERE user_id = ?', (user_id,)).fetchone()
@@ -236,9 +252,9 @@ async def profile_callback(call: types.CallbackQuery):
     product = "Нет"
     last_key = ""
     
-    if res and res[0]:
+    if res and res['expiry_date']:
         try:
-            expiry = datetime.strptime(res[0], '%Y-%m-%d %H:%M:%S')
+            expiry = datetime.strptime(res['expiry_date'], '%Y-%m-%d %H:%M:%S')
             diff = expiry - datetime.now()
             if diff.total_seconds() > 0:
                 days = diff.days
@@ -247,88 +263,84 @@ async def profile_callback(call: types.CallbackQuery):
                     time_left = f"{days} дн. {hours} ч."
                 else:
                     time_left = f"{hours} ч."
-                product = res[1] if res[1] else "Plutonium"
-                last_key = res[2] if res[2] else ""
+                product = res['product_name'] if res['product_name'] else "Plutonium"
+                last_key = res['last_key'] if res['last_key'] else ""
             else:
                 time_left = "❌ Истекла"
-                product = res[1] if res[1] else "Plutonium"
+                product = res['product_name'] if res['product_name'] else "Plutonium"
         except:
             pass
     
     text = (f"{em(EMOJI['profile'], '👤')} <b>Личный кабинет</b>\n\n"
             f"{em(EMOJI['id'], '🆔')} <b>ID:</b> <code>{user_id}</code>\n"
-            f"{em(EMOJI['name'], '📛')} <b>Имя:</b> {call.from_user.first_name}\n"
-            f"{em(EMOJI['username'], '🔖')} <b>Username:</b> @{call.from_user.username or 'Нет'}\n"
+            f"{em(EMOJI['name'], '📛')} <b>Имя:</b> {user_id}\n"
+            f"{em(EMOJI['username'], '🔖')} <b>Username:</b> @{user_id}\n"
             f"{em(EMOJI['product'], '📦')} <b>Товар:</b> {product}\n"
             f"{em(EMOJI['time'], '⏳')} <b>Осталось:</b> {time_left}")
     
     if last_key:
         text += f"\n{em(EMOJI['key'], '🔑')} <b>Ваш ключ:</b> <code>{last_key}</code>"
     
-    await call.message.edit_media(media=InputMediaPhoto(media="https://files.catbox.moe/5h6fr0.png", caption=text), reply_markup=back_btn("start"))
+    edit_message_caption(chat_id, message_id, text, back_btn("start"))
 
 # ---------- СТАТУС ----------
-@dp.callback_query(F.data == "check_status")
-async def check_status(call: types.CallbackQuery):
-    await call.answer()
-    status = cursor.execute('SELECT value FROM settings WHERE key="cheat_status"').fetchone()[0]
+def handle_status(chat_id, message_id):
+    status = cursor.execute('SELECT value FROM settings WHERE key="cheat_status"').fetchone()['value']
     text = f"{em(EMOJI['status'], '📊')} <b>Статус ПО:</b> {status}"
-    await call.message.edit_media(media=InputMediaPhoto(media="https://files.catbox.moe/916cwt.png", caption=text), reply_markup=back_btn("start"))
+    edit_message_caption(chat_id, message_id, text, back_btn("start"))
 
 # ---------- ОТЗЫВЫ ----------
-@dp.callback_query(F.data == "show_reviews")
-async def reviews_callback(call: types.CallbackQuery):
-    await call.answer()
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [url_btn("Канал с отзывами", "https://t.me/plutoniumrewiews", EMOJI['channel'])],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="start")]
-    ])
+def handle_reviews(chat_id, message_id):
+    kb = {
+        "inline_keyboard": [
+            [url_btn("Канал с отзывами", "https://t.me/plutoniumrewiews", EMOJI['channel'])],
+            [{"text": "⬅️ Назад", "callback_data": "start"}]
+        ]
+    }
     text = f"{em(EMOJI['reviews'], '⭐')} <b>Наши отзывы</b>"
-    await call.message.edit_media(media=InputMediaPhoto(media="https://files.catbox.moe/3z96th.png", caption=text), reply_markup=kb)
+    edit_message_caption(chat_id, message_id, text, kb)
 
 # ---------- МЕНЮ ПОКУПКИ ----------
-@dp.callback_query(F.data == "buy_key")
-async def buy_callback(call: types.CallbackQuery):
-    await call.answer()
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [btn("Standoff 2", "game_so2", EMOJI['standoff'])],
-        [btn("PUBG Mobile", "game_pubg", EMOJI['pubg'])],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="start")]
-    ])
+def handle_buy_key(chat_id, message_id):
+    kb = {
+        "inline_keyboard": [
+            [btn("Standoff 2", "game_so2", EMOJI['standoff'])],
+            [btn("PUBG Mobile", "game_pubg", EMOJI['pubg'])],
+            [{"text": "⬅️ Назад", "callback_data": "start"}]
+        ]
+    }
     text = f"{em(EMOJI['games'], '🎮')} <b>Выберите игру:</b>"
-    await call.message.edit_media(media=InputMediaPhoto(media="https://files.catbox.moe/1u2tb9.png", caption=text), reply_markup=kb)
+    edit_message_caption(chat_id, message_id, text, kb)
 
 # ---------- STANDOFF 2 ----------
-@dp.callback_query(F.data == "game_so2")
-async def so2_menu(call: types.CallbackQuery):
-    await call.answer()
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [btn("Plutonium", "cheat_so2", EMOJI['plutonium'])],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy_key")]
-    ])
+def handle_so2_menu(chat_id, message_id):
+    kb = {
+        "inline_keyboard": [
+            [btn("Plutonium", "cheat_so2", EMOJI['plutonium'])],
+            [{"text": "⬅️ Назад", "callback_data": "buy_key"}]
+        ]
+    }
     text = (f"{em(EMOJI['standoff'], '⚙️')} <b>Standoff 2</b>\n"
             f"{em(EMOJI['games'], '🎮')} Выберите чит:")
-    await call.message.edit_media(media=InputMediaPhoto(media="https://files.catbox.moe/ljpeoi.png", caption=text), reply_markup=kb)
+    edit_message_caption(chat_id, message_id, text, kb)
 
 # ---------- PUBG ----------
-@dp.callback_query(F.data == "game_pubg")
-async def pubg_menu(call: types.CallbackQuery):
-    await call.answer()
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [btn("Zolo", "cheat_zolo", EMOJI['zolo'])],
-        [btn("Impact VIP", "cheat_impact", EMOJI['impact'])],
-        [btn("King Mod", "cheat_king", EMOJI['king'])],
-        [btn("Inferno", "cheat_inferno", EMOJI['inferno'])],
-        [btn("Zolo CIS", "cheat_zolo_cis", EMOJI['zolo_cis'])],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy_key")]
-    ])
+def handle_pubg_menu(chat_id, message_id):
+    kb = {
+        "inline_keyboard": [
+            [btn("Zolo", "cheat_zolo", EMOJI['zolo'])],
+            [btn("Impact VIP", "cheat_impact", EMOJI['impact'])],
+            [btn("King Mod", "cheat_king", EMOJI['king'])],
+            [btn("Inferno", "cheat_inferno", EMOJI['inferno'])],
+            [btn("Zolo CIS", "cheat_zolo_cis", EMOJI['zolo_cis'])],
+            [{"text": "⬅️ Назад", "callback_data": "buy_key"}]
+        ]
+    }
     text = f"{em(EMOJI['pubg'], '🎯')} <b>PUBG Mobile</b>\nВыберите чит:"
-    await call.message.edit_media(media=InputMediaPhoto(media="https://files.catbox.moe/1u2tb9.png", caption=text), reply_markup=kb)
+    edit_message_caption(chat_id, message_id, text, kb)
 
 # ---------- ПОКАЗ ЧИТА ----------
-async def show_cheat(call: types.CallbackQuery, cheat: str):
-    await call.answer()
-    
+def show_cheat(chat_id, message_id, cheat):
     desc = f"{CHEAT_NAMES[cheat]}\n\n💰 <b>Цены:</b>\n"
     for days, price in PRICES[cheat].items():
         days_text = f"{days} дн." if days != "1" else "1 день"
@@ -345,30 +357,15 @@ async def show_cheat(call: types.CallbackQuery, cheat: str):
         buttons.append([btn(days_text, f"period_{cheat}_{days}", EMOJI['days'])])
     
     game = "game_so2" if cheat == "so2" else "game_pubg"
-    buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data=game)])
+    buttons.append([{"text": "⬅️ Назад", "callback_data": game}])
     
-    await call.message.edit_media(media=InputMediaPhoto(media=CHEAT_PHOTOS[cheat], caption=desc), reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
-
-@dp.callback_query(F.data == "cheat_so2")
-async def cheat_so2(call: types.CallbackQuery): await show_cheat(call, "so2")
-@dp.callback_query(F.data == "cheat_zolo")
-async def cheat_zolo(call: types.CallbackQuery): await show_cheat(call, "zolo")
-@dp.callback_query(F.data == "cheat_impact")
-async def cheat_impact(call: types.CallbackQuery): await show_cheat(call, "impact")
-@dp.callback_query(F.data == "cheat_king")
-async def cheat_king(call: types.CallbackQuery): await show_cheat(call, "king")
-@dp.callback_query(F.data == "cheat_inferno")
-async def cheat_inferno(call: types.CallbackQuery): await show_cheat(call, "inferno")
-@dp.callback_query(F.data == "cheat_zolo_cis")
-async def cheat_zolo_cis(call: types.CallbackQuery): await show_cheat(call, "zolo_cis")
+    kb = {"inline_keyboard": buttons}
+    edit_message_caption(chat_id, message_id, desc, kb)
 
 # ---------- ВЫБОР ПЕРИОДА ----------
-@dp.callback_query(F.data.startswith("period_"))
-async def select_period(call: types.CallbackQuery, state: FSMContext):
-    await call.answer()
-    parts = call.data.split("_")
-    cheat, days = parts[1], parts[2]
-    await state.update_data(product=cheat, days=days)
+def handle_select_period(chat_id, message_id, cheat, days):
+    waiting[f"{chat_id}_product"] = cheat
+    waiting[f"{chat_id}_days"] = days
     
     desc = f"{CHEAT_NAMES[cheat]}\n\n📅 {days} дн.\n"
     if cheat == "so2":
@@ -378,20 +375,19 @@ async def select_period(call: types.CallbackQuery, state: FSMContext):
         desc += f"💰 {PRICES[cheat][days]}"
     desc += "\n\n💳 <b>Выберите способ оплаты:</b>"
     
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [btn("Укр Банк", f"bank_{cheat}_{days}", EMOJI['bank'])],
-        [btn("CryptoBot", f"crypto_{cheat}_{days}", EMOJI['crypto'])],
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"cheat_{cheat}")]
-    ])
-    await call.message.edit_media(media=InputMediaPhoto(media=CHEAT_PHOTOS[cheat], caption=desc), reply_markup=kb)
+    kb = {
+        "inline_keyboard": [
+            [btn("Укр Банк", f"bank_{cheat}_{days}", EMOJI['bank'])],
+            [btn("CryptoBot", f"crypto_{cheat}_{days}", EMOJI['crypto'])],
+            [{"text": "⬅️ Назад", "callback_data": f"cheat_{cheat}"}]
+        ]
+    }
+    edit_message_caption(chat_id, message_id, desc, kb)
 
 # ---------- ОПЛАТА БАНКОМ ----------
-@dp.callback_query(F.data.startswith("bank_"))
-async def bank_payment(call: types.CallbackQuery, state: FSMContext):
-    await call.answer()
-    parts = call.data.split("_")
-    cheat, days = parts[1], parts[2]
-    await state.update_data(product=cheat, days=days, method="bank")
+def handle_bank_payment(chat_id, message_id, cheat, days):
+    waiting[f"{chat_id}_product"] = cheat
+    waiting[f"{chat_id}_days"] = days
     
     price = PRICES[cheat][days][0] if cheat == "so2" else PRICES[cheat][days]
     
@@ -401,310 +397,256 @@ async def bank_payment(call: types.CallbackQuery, state: FSMContext):
             f"{em(EMOJI['comment'], '❗')} <b>Комментарий:</b> За цифрові товари\n\n"
             f"{em(EMOJI['screenshot'], '📸')} После оплаты нажмите кнопку ниже и пришлите скриншот")
     
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [btn("Я оплатил", "send_receipt", EMOJI['receipt'])],
-        [btn("Отмена", "start", EMOJI['cancel'])]
-    ])
-    await call.message.edit_media(media=InputMediaPhoto(media=CHEAT_PHOTOS[cheat], caption=text), reply_markup=kb)
-
-# ---------- ОПЛАТА CRYPTOBOT ----------
-async def create_crypto_invoice(user_id, amount, days, product):
-    url = f"{CRYPTO_API}/createInvoice"
-    headers = {"Crypto-Pay-API-Token": CRYPTO_TOKEN}
-    data = {
-        "asset": "USDT",
-        "amount": amount,
-        "description": f"{CHEAT_NAMES[product]} - {days} дней",
-        "paid_btn_name": "openBot",
-        "paid_btn_url": f"https://t.me/{(await bot.get_me()).username}",
-        "payload": f"{user_id}|{days}|{product}"
+    kb = {
+        "inline_keyboard": [
+            [btn("Я оплатил", "send_receipt", EMOJI['receipt'])],
+            [btn("Отмена", "start", EMOJI['cancel'])]
+        ]
     }
-    try:
-        r = requests.post(url, headers=headers, json=data)
-        if r.status_code == 200 and r.json().get("ok"):
-            return r.json()["result"]
-    except Exception as e:
-        print(f"CryptoBot error: {e}")
-    return None
-
-async def check_crypto_payment(payment_id):
-    url = f"{CRYPTO_API}/getInvoices"
-    headers = {"Crypto-Pay-API-Token": CRYPTO_TOKEN}
-    params = {"invoice_ids": payment_id}
-    try:
-        r = requests.get(url, headers=headers, params=params)
-        if r.status_code == 200 and r.json().get("ok"):
-            items = r.json()["result"].get("items", [])
-            if items:
-                return items[0]
-    except Exception as e:
-        print(f"Check payment error: {e}")
-    return None
-
-@dp.callback_query(F.data.startswith("crypto_"))
-async def crypto_payment(call: types.CallbackQuery, state: FSMContext):
-    await call.answer()
-    parts = call.data.split("_")
-    cheat = parts[1]
-    days = parts[2]
-    
-    if cheat == "so2":
-        amount = float(PRICES[cheat][days][1].replace("$", ""))
-    else:
-        price_str = PRICES[cheat][days].replace(" грн", "")
-        amount = round(int(price_str) / 43, 2)
-    
-    invoice = await create_crypto_invoice(call.from_user.id, amount, days, cheat)
-    if not invoice:
-        await call.message.edit_text(
-            f"{em(EMOJI['cancel'], '❌')} Ошибка создания платежа",
-            reply_markup=back_btn("start")
-        )
-        return
-    
-    cursor.execute('''
-        INSERT INTO crypto_payments (payment_id, user_id, amount, days, product, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (str(invoice["invoice_id"]), call.from_user.id, amount, days, cheat, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
-    conn.commit()
-    
-    text = (f"{em(EMOJI['crypto'], '💎')} <b>Оплата через CryptoBot</b>\n\n"
-            f"{em(EMOJI['card'], '💰')} <b>Сумма:</b> {amount}$\n"
-            f"{em(EMOJI['order'], '📅')} <b>Тариф:</b> {days} дней")
-    
-    kb = InlineKeyboardMarkup(inline_keyboard=[
-        [url_btn(f"{em(EMOJI['crypto'], '💎')} Оплатить", invoice["pay_url"])],
-        [btn(f"{em(EMOJI['check'], '✅')} Проверить оплату", f"check_crypto_{invoice['invoice_id']}", EMOJI['check'])],
-        [btn(f"{em(EMOJI['cancel'], '❌')} Отмена", "start", EMOJI['cancel'])]
-    ])
-    
-    await call.message.edit_media(
-        media=InputMediaPhoto(media=CHEAT_PHOTOS[cheat], caption=text),
-        reply_markup=kb
-    )
-
-@dp.callback_query(F.data.startswith("check_crypto_"))
-async def check_crypto_payment_callback(call: types.CallbackQuery):
-    await call.answer()
-    payment_id = int(call.data.replace("check_crypto_", ""))
-    
-    payment_info = await check_crypto_payment(payment_id)
-    
-    if payment_info and payment_info.get("status") == "paid":
-        cursor.execute('SELECT product, days FROM crypto_payments WHERE payment_id = ?', (str(payment_id),))
-        res = cursor.fetchone()
-        
-        if res:
-            product, days = res
-            target_id = call.from_user.id
-            expiry_date = (datetime.now() + timedelta(days=int(days))).strftime('%Y-%m-%d %H:%M:%S')
-            
-            cursor.execute('''
-                UPDATE users SET expiry_date = ?, product_name = ? WHERE user_id = ?
-            ''', (expiry_date, CHEAT_NAMES[product], target_id))
-            cursor.execute('UPDATE crypto_payments SET status = "paid" WHERE payment_id = ?', (str(payment_id),))
-            conn.commit()
-            
-            await call.message.edit_text(
-                f"{em(EMOJI['success'], '✅')} <b>Оплата подтверждена!</b>\n\n{em(EMOJI['order'], '📅')} Подписка до {expiry_date}",
-                reply_markup=back_btn("start")
-            )
-            
-            await bot.send_message(
-                ADMIN_ID,
-                f"{em(EMOJI['check'], '💰')} <b>Новый крипто-платёж</b>\n👤 {target_id}\n📅 {days} дней\n💎 {CHEAT_NAMES[product]}"
-            )
-    else:
-        await call.answer("⏳ Платёж ещё не подтверждён", show_alert=True)
+    edit_message_caption(chat_id, message_id, text, kb)
 
 # ---------- ОТПРАВКА ЧЕКА ----------
-@dp.callback_query(F.data == "send_receipt")
-async def receipt_callback(call: types.CallbackQuery, state: FSMContext):
-    data = await state.get_data()
-    if not data.get('product') or not data.get('days'):
-        await call.message.edit_text(
-            f"{em(EMOJI['cancel'], '❌')} Ошибка: данные заказа утеряны",
-            reply_markup=back_btn("start")
-        )
-        await state.clear()
-        return
-    
-    await call.message.answer(f"{em(EMOJI['screenshot'], '📸')} <b>Отправьте скриншот чека</b> (одним фото)")
-    await state.set_state(OrderState.waiting_for_receipt)
+def handle_send_receipt(chat_id, message_id, user_id):
+    waiting[f"{user_id}_waiting"] = "receipt"
+    send_message(chat_id, f"{em(EMOJI['screenshot'], '📸')} <b>Отправьте скриншот чека</b> (одним фото)")
 
-@dp.message(OrderState.waiting_for_receipt, F.photo)
-async def handle_receipt(message: types.Message, state: FSMContext):
-    data = await state.get_data()
+# ---------- ГЛАВНЫЙ ЦИКЛ ----------
+def main():
+    logger.info("🚀 Запуск Plutonium Store")
+    logger.info(f"👑 Админ ID: {ADMIN_ID}")
     
-    if not data.get('product') or not data.get('days'):
-        await message.answer(f"{em(EMOJI['cancel'], '❌')} Ошибка: данные заказа не найдены")
-        await state.clear()
-        return
-    
-    adm_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [btn(f"{em(EMOJI['approve'], '✅')} Одобрить", f"adm_ok_{message.from_user.id}_{data['product']}_{data['days']}", EMOJI['approve'])],
-        [btn(f"{em(EMOJI['reject'], '❌')} Отклонить", f"adm_no_{message.from_user.id}", EMOJI['reject'])]
-    ])
-    
-    await bot.send_photo(
-        ADMIN_ID,
-        message.photo[-1].file_id,
-        caption=f"{em(EMOJI['check'], '🔔')} <b>Чек от {message.from_user.id}</b>\n"
-                f"{em(EMOJI['product'], '📦')} Товар: {CHEAT_NAMES[data['product']]}\n"
-                f"{em(EMOJI['order'], '📅')} Тариф: {data['days']} дней",
-        reply_markup=adm_kb
-    )
-    
-    await message.answer(f"{em(EMOJI['success'], '✅')} Чек отправлен администратору! Ожидайте подтверждения.")
-    await state.clear()
+    offset = 0
+    while True:
+        try:
+            updates = get_updates(offset, timeout=30)
+            if updates.get('ok') and updates.get('result'):
+                for update in updates['result']:
+                    offset = update['update_id'] + 1
+                    
+                    # Callback
+                    if 'callback_query' in update:
+                        cb = update['callback_query']
+                        cb_id = cb['id']
+                        user_id = cb['from']['id']
+                        chat_id = cb['message']['chat']['id']
+                        message_id = cb['message']['message_id']
+                        data = cb['data']
+                        
+                        if data == "start":
+                            handle_start(chat_id, user_id)
+                        
+                        elif data == "profile":
+                            handle_profile(chat_id, user_id, message_id)
+                        
+                        elif data == "check_status":
+                            handle_status(chat_id, message_id)
+                        
+                        elif data == "show_reviews":
+                            handle_reviews(chat_id, message_id)
+                        
+                        elif data == "buy_key":
+                            handle_buy_key(chat_id, message_id)
+                        
+                        elif data == "game_so2":
+                            handle_so2_menu(chat_id, message_id)
+                        
+                        elif data == "game_pubg":
+                            handle_pubg_menu(chat_id, message_id)
+                        
+                        elif data == "cheat_so2":
+                            show_cheat(chat_id, message_id, "so2")
+                        elif data == "cheat_zolo":
+                            show_cheat(chat_id, message_id, "zolo")
+                        elif data == "cheat_impact":
+                            show_cheat(chat_id, message_id, "impact")
+                        elif data == "cheat_king":
+                            show_cheat(chat_id, message_id, "king")
+                        elif data == "cheat_inferno":
+                            show_cheat(chat_id, message_id, "inferno")
+                        elif data == "cheat_zolo_cis":
+                            show_cheat(chat_id, message_id, "zolo_cis")
+                        
+                        elif data.startswith("period_"):
+                            parts = data.split("_")
+                            handle_select_period(chat_id, message_id, parts[1], parts[2])
+                        
+                        elif data.startswith("bank_"):
+                            parts = data.split("_")
+                            handle_bank_payment(chat_id, message_id, parts[1], parts[2])
+                        
+                        elif data == "send_receipt":
+                            handle_send_receipt(chat_id, message_id, user_id)
+                        
+                        answer_callback(cb_id)
+                    
+                    # Сообщение
+                    elif 'message' in update:
+                        msg = update['message']
+                        chat_id = msg['chat']['id']
+                        user_id = msg['from']['id']
+                        text = msg.get('text', '')
+                        
+                        # /start
+                        if text == "/start":
+                            handle_start(chat_id, user_id)
+                        
+                        # Обработка чека
+                        elif waiting.get(f"{user_id}_waiting") == "receipt" and 'photo' in msg:
+                            waiting[f"{user_id}_waiting"] = None
+                            
+                            adm_kb = {
+                                "inline_keyboard": [
+                                    [btn("Одобрить", f"adm_ok_{user_id}", EMOJI['approve'])],
+                                    [btn("Отклонить", f"adm_no_{user_id}", EMOJI['reject'])]
+                                ]
+                            }
+                            product = waiting.get(f"{user_id}_product", "Unknown")
+                            days = waiting.get(f"{user_id}_days", "0")
+                            
+                            send_photo(
+                                ADMIN_ID,
+                                msg['photo'][-1]['file_id'],
+                                f"{em(EMOJI['check'], '🔔')} <b>Чек от {user_id}</b>\n"
+                                f"{em(EMOJI['product'], '📦')} Товар: {CHEAT_NAMES.get(product, 'Unknown')}\n"
+                                f"{em(EMOJI['order'], '📅')} Тариф: {days} дней",
+                                adm_kb
+                            )
+                            send_message(chat_id, f"{em(EMOJI['success'], '✅')} Чек отправлен администратору! Ожидайте подтверждения.")
+                        
+                        # Отмена
+                        elif text == "/cancel":
+                            if waiting.get(f"{user_id}_waiting"):
+                                waiting[f"{user_id}_waiting"] = None
+                                send_message(chat_id, "✅ Операция отменена")
+            
+            time.sleep(1)
+        except Exception as e:
+            logger.error(f"Error: {e}")
+            time.sleep(5)
 
-# ---------- РЕШЕНИЕ АДМИНА ----------
-@dp.callback_query(F.data.startswith("adm_"))
-async def admin_decision(call: types.CallbackQuery, state: FSMContext):
-    if call.from_user.id != ADMIN_ID:
-        await call.answer("⛔️ Доступ запрещен")
-        return
-    
-    parts = call.data.split("_")
+# ---------- ОБРАБОТКА АДМИН-РЕШЕНИЙ ----------
+def handle_admin_decision(chat_id, data, user_id):
+    parts = data.split("_")
     if parts[1] == "ok":
-        await state.update_data(
-            target_id=int(parts[2]),
-            product=parts[3],
-            days=parts[4]
-        )
-        await call.message.answer(f"{em(EMOJI['file'], '📎')} <b>Отправьте файл с читом</b> (или текст с инструкцией)")
-        await state.set_state(OrderState.waiting_for_admin_file)
-        await call.answer("✅ Одобрено")
-        await call.message.delete()
+        target_id = int(parts[2])
+        product = waiting.get(f"{target_id}_product", "Unknown")
+        days = waiting.get(f"{target_id}_days", "0")
+        
+        waiting[f"admin_{target_id}_product"] = product
+        waiting[f"admin_{target_id}_days"] = days
+        
+        send_message(chat_id, f"{em(EMOJI['file'], '📎')} <b>Отправьте файл с читом</b> (или текст с инструкцией)")
+        waiting[f"admin_{target_id}_waiting"] = "file"
+        answer_callback(data, "✅ Одобрено")
     else:
-        await bot.send_message(int(parts[2]), f"{em(EMOJI['reject'], '❌')} Ваша оплата была отклонена администратором.")
-        await call.message.delete()
-        await call.answer("❌ Отклонено")
+        target_id = int(parts[2])
+        send_message(target_id, f"{em(EMOJI['reject'], '❌')} Ваша оплата была отклонена администратором.")
+        send_message(chat_id, f"{em(EMOJI['reject'], '❌')} Отклонено")
+        answer_callback(data)
 
 # ---------- ФАЙЛ ОТ АДМИНА ----------
-@dp.message(OrderState.waiting_for_admin_file)
-async def admin_file_input(message: types.Message, state: FSMContext):
-    if message.from_user.id != ADMIN_ID:
+def handle_admin_file(chat_id, user_id, msg):
+    target_id = int(waiting.get(f"admin_target", 0))
+    if not target_id:
         return
-    
-    data = await state.get_data()
     
     file_id = None
     file_text = None
     
-    if message.document:
-        file_id = message.document.file_id
-    elif message.photo:
-        file_id = message.photo[-1].file_id
+    if 'document' in msg:
+        file_id = msg['document']['file_id']
+    elif 'photo' in msg:
+        file_id = msg['photo'][-1]['file_id']
     else:
-        file_text = message.text
+        file_text = msg.get('text', '')
     
-    await state.update_data(file=file_id, file_text=file_text)
-    await message.answer(f"{em(EMOJI['key'], '🔑')} <b>Введите ключ активации</b>")
-    await state.set_state(OrderState.waiting_for_admin_key)
+    waiting[f"admin_{target_id}_file"] = file_id
+    waiting[f"admin_{target_id}_file_text"] = file_text
+    waiting[f"admin_{target_id}_waiting"] = "key"
+    send_message(chat_id, f"{em(EMOJI['key'], '🔑')} <b>Введите ключ активации</b>")
 
 # ---------- КЛЮЧ ОТ АДМИНА ----------
-@dp.message(OrderState.waiting_for_admin_key)
-async def admin_key_input(message: types.Message, state: FSMContext):
-    if message.from_user.id != ADMIN_ID:
+def handle_admin_key(chat_id, user_id, key):
+    target_id = int(waiting.get(f"admin_target", 0))
+    if not target_id:
         return
     
-    data = await state.get_data()
-    target_id = int(data['target_id'])
-    days = int(data['days'])
+    product = waiting.get(f"admin_{target_id}_product", "Unknown")
+    days = int(waiting.get(f"admin_{target_id}_days", "0"))
+    file_id = waiting.get(f"admin_{target_id}_file")
+    file_text = waiting.get(f"admin_{target_id}_file_text")
     
     expiry_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
-    
-    product_name = CHEAT_NAMES.get(data['product'], "Plutonium")
+    product_name = CHEAT_NAMES.get(product, "Plutonium")
     
     cursor.execute('''
         INSERT OR REPLACE INTO users (user_id, expiry_date, product_name, subscribed_at, banned, last_key) 
         VALUES (?, ?, ?, COALESCE((SELECT subscribed_at FROM users WHERE user_id = ?), ?), 0, ?)
-    ''', (target_id, expiry_date, product_name, target_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), message.text))
+    ''', (target_id, expiry_date, product_name, target_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), key))
     conn.commit()
     
     text = (f"{em(EMOJI['success'], '✅')} <b>Заказ активирован!</b>\n\n"
             f"{em(EMOJI['order'], '📅')} <b>Действует до:</b> {expiry_date}\n"
-            f"{em(EMOJI['key'], '🔑')} <b>Ключ:</b> <code>{message.text}</code>\n\n"
+            f"{em(EMOJI['key'], '🔑')} <b>Ключ:</b> <code>{key}</code>\n\n"
             f"{em(EMOJI['thank'], '💜')} Благодарим за покупку в Plutonium Store!")
     
     try:
-        if data.get('file'):
-            await bot.send_document(target_id, data['file'], caption=text)
-        elif data.get('file_text'):
-            await bot.send_message(target_id, text + f"\n\n{em(EMOJI['heart'], '📝')} {data['file_text']}")
+        if file_id:
+            send_document(target_id, file_id, text)
+        elif file_text:
+            send_message(target_id, text + f"\n\n{em(EMOJI['heart'], '📝')} {file_text}")
         else:
-            await bot.send_message(target_id, text)
+            send_message(target_id, text)
         
-        await message.answer(f"{em(EMOJI['done'], '✅')} Готово! Товар выдан пользователю.")
+        send_message(chat_id, f"{em(EMOJI['done'], '✅')} Готово! Товар выдан пользователю.")
     except Exception as e:
-        await message.answer(f"❌ Ошибка при отправке: {e}")
+        send_message(chat_id, f"❌ Ошибка при отправке: {e}")
     
-    await state.clear()
+    # Очищаем
+    waiting.pop(f"admin_{target_id}_product", None)
+    waiting.pop(f"admin_{target_id}_days", None)
+    waiting.pop(f"admin_{target_id}_file", None)
+    waiting.pop(f"admin_{target_id}_file_text", None)
+    waiting.pop(f"admin_{target_id}_waiting", None)
+    waiting.pop(f"admin_target", None)
 
 # ---------- АДМИН-КОМАНДЫ ----------
-@dp.message(Command("set_status"))
-async def set_status(message: types.Message):
-    if message.from_user.id != ADMIN_ID: 
-        return
-    
-    new_status = message.text.replace("/set_status ", "").strip()
+def handle_set_status(chat_id, text):
+    new_status = text.replace("/set_status ", "").strip()
     cursor.execute('UPDATE settings SET value = ? WHERE key = "cheat_status"', (new_status,))
     conn.commit()
-    await message.answer(f"{em(EMOJI['success'], '✅')} Статус обновлен на: {new_status}")
+    send_message(chat_id, f"{em(EMOJI['success'], '✅')} Статус обновлен на: {new_status}")
 
-@dp.message(Command("broadcast"))
-async def broadcast_start(message: types.Message, state: FSMContext):
-    if message.from_user.id != ADMIN_ID:
-        return
-    
-    await message.answer(f"{em(EMOJI['status'], '📢')} <b>Отправь сообщение для рассылки</b> (текст, фото, видео или документ)")
-    await state.set_state(OrderState.broadcast_text)
+def handle_broadcast(chat_id, user_id):
+    waiting[f"{user_id}_broadcast"] = "waiting"
+    send_message(chat_id, f"{em(EMOJI['status'], '📢')} <b>Отправь сообщение для рассылки</b> (текст, фото, видео или документ)")
 
-@dp.message(OrderState.broadcast_text)
-async def broadcast_send(message: types.Message, state: FSMContext):
-    if message.from_user.id != ADMIN_ID:
-        return
-    
-    cursor.execute('SELECT user_id FROM users WHERE banned = 0')
-    users = cursor.fetchall()
-    
+def send_broadcast(msg, user_id):
+    users = cursor.execute('SELECT user_id FROM users WHERE banned = 0').fetchall()
     if not users:
-        await message.answer("📭 Нет пользователей в базе")
-        await state.clear()
+        send_message(user_id, "📭 Нет пользователей в базе")
         return
     
-    status = await message.answer(f"{em(EMOJI['status'], '⏳')} Начинаю рассылку {len(users)} пользователям...")
-    
-    success = 0
-    for (user_id,) in users:
+    sent = 0
+    for u in users:
         try:
-            if message.text:
-                await bot.send_message(user_id, message.text)
-            elif message.photo:
-                await bot.send_photo(user_id, message.photo[-1].file_id, caption=message.caption)
-            elif message.video:
-                await bot.send_video(user_id, message.video.file_id, caption=message.caption)
-            elif message.document:
-                await bot.send_document(user_id, message.document.file_id, caption=message.caption)
-            success += 1
-            if success % 10 == 0:
-                await status.edit_text(f"{em(EMOJI['status'], '⏳')} Прогресс: {success}/{len(users)}")
-            await asyncio.sleep(0.05)
+            if 'text' in msg:
+                send_message(u['user_id'], msg['text'])
+            elif 'photo' in msg:
+                send_photo(u['user_id'], msg['photo'][-1]['file_id'], msg.get('caption', ''))
+            elif 'video' in msg:
+                send_video(u['user_id'], msg['video']['file_id'], msg.get('caption', ''))
+            sent += 1
         except:
             pass
+        time.sleep(0.05)
     
-    await status.edit_text(f"{em(EMOJI['success'], '✅')} Рассылка завершена!\n{em(EMOJI['success'], '✅')} Успешно: {success}\n{em(EMOJI['cancel'], '❌')} Ошибок: {len(users)-success}")
-    await state.clear()
+    send_message(user_id, f"{em(EMOJI['success'], '✅')} Рассылка завершена!\n{em(EMOJI['success'], '✅')} Успешно: {sent}")
 
-@dp.message(Command("ban"))
-async def ban_user(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    
-    args = message.text.split(maxsplit=1)
+def handle_ban(chat_id, text):
+    args = text.split(maxsplit=1)
     if len(args) < 2:
-        await message.answer("❌ /ban [id] [причина]")
+        send_message(chat_id, "❌ /ban [id] [причина]")
         return
     
     parts = args[1].split(maxsplit=1)
@@ -715,50 +657,36 @@ async def ban_user(message: types.Message):
     conn.commit()
     
     try:
-        await bot.send_message(target_id, f"⛔️ <b>Вы заблокированы</b>\nПричина: {reason}")
+        send_message(target_id, f"⛔️ <b>Вы заблокированы</b>\nПричина: {reason}")
     except:
         pass
     
-    await message.answer(f"{em(EMOJI['success'], '✅')} Пользователь {target_id} заблокирован")
+    send_message(chat_id, f"{em(EMOJI['success'], '✅')} Пользователь {target_id} заблокирован")
 
-@dp.message(Command("unban"))
-async def unban_user(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
-    
-    args = message.text.split()
+def handle_unban(chat_id, text):
+    args = text.split()
     if len(args) < 2:
-        await message.answer("❌ /unban [id]")
+        send_message(chat_id, "❌ /unban [id]")
         return
     
     target_id = int(args[1])
-    
     cursor.execute('UPDATE users SET banned = 0, ban_reason = NULL WHERE user_id = ?', (target_id,))
     conn.commit()
     
     try:
-        await bot.send_message(target_id, f"✅ <b>Вы разблокированы</b>")
+        send_message(target_id, f"✅ <b>Вы разблокированы</b>")
     except:
         pass
     
-    await message.answer(f"{em(EMOJI['success'], '✅')} Пользователь {target_id} разблокирован")
+    send_message(chat_id, f"{em(EMOJI['success'], '✅')} Пользователь {target_id} разблокирован")
 
-@dp.message(Command("users"))
-async def users_count(message: types.Message):
-    if message.from_user.id != ADMIN_ID:
-        return
+def handle_users(chat_id):
+    total = cursor.execute('SELECT COUNT(*) FROM users').fetchone()[0]
+    banned = cursor.execute('SELECT COUNT(*) FROM users WHERE banned = 1').fetchone()[0]
+    active = cursor.execute('SELECT COUNT(*) FROM users WHERE expiry_date > ?', (datetime.now().strftime('%Y-%m-%d %H:%M:%S'),)).fetchone()[0]
     
-    cursor.execute('SELECT COUNT(*) FROM users')
-    total = cursor.fetchone()[0]
-    
-    cursor.execute('SELECT COUNT(*) FROM users WHERE banned = 1')
-    banned = cursor.fetchone()[0]
-    
-    cursor.execute('SELECT COUNT(*) FROM users WHERE expiry_date > ?', 
-                  (datetime.now().strftime('%Y-%m-%d %H:%M:%S'),))
-    active = cursor.fetchone()[0]
-    
-    await message.answer(
+    send_message(
+        chat_id,
         f"{em(EMOJI['profile'], '👥')} <b>Статистика пользователей:</b>\n\n"
         f"{em(EMOJI['status'], '📊')} Всего: {total}\n"
         f"{em(EMOJI['success'], '✅')} Активных: {active}\n"
@@ -766,11 +694,5 @@ async def users_count(message: types.Message):
     )
 
 # ---------- ЗАПУСК ----------
-async def main():
-    print("🚀 Plutonium Store запущен!")
-    print(f"👑 Админ ID: {ADMIN_ID}")
-    print(f"💰 Доступно читов: {len(PRICES)}")
-    await dp.start_polling(bot)
-
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()
