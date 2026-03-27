@@ -24,15 +24,13 @@ CRYPTO_API = "https://pay.crypt.bot/api"
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
-# --- ФУНКЦИЯ ДЛЯ TG PREMIUM ЭМОДЗИ (как в Bot API) ---
-def tg_emoji(emoji_id: str, char: str = "●") -> str:
-    """Вставляет TG Premium эмодзи через HTML тег"""
+# --- ФУНКЦИЯ ДЛЯ ТЕКСТА ---
+def tg_emoji(emoji_id: str, char: str) -> str:
     return f'<tg-emoji emoji-id="{emoji_id}">{char}</tg-emoji>'
 
-# --- КНОПКИ С TG PREMIUM ---
+# --- КНОПКИ ---
 def btn(text: str, callback: str, emoji_id: str = None):
     if emoji_id:
-        # Для кнопок используем icon_custom_emoji_id
         return InlineKeyboardButton(text=text, callback_data=callback, icon_custom_emoji_id=emoji_id)
     return InlineKeyboardButton(text=text, callback_data=callback)
 
@@ -49,11 +47,6 @@ PRICES = {
     "king": {"1": "100 грн", "7": "425 грн", "30": "1060 грн"},
     "inferno": {"1": "80 грн", "3": "200 грн", "7": "350 грн", "15": "530 грн", "30": "690 грн", "60": "950 грн"},
     "zolo_cis": {"1": "70 грн", "3": "150 грн", "7": "250 грн", "14": "350 грн", "30": "700 грн", "60": "900 грн"}
-}
-
-# --- USD ЦЕНЫ ДЛЯ CRYPTOBOT ---
-USD_PRICES = {
-    "so2": {"7": 3.5, "30": 7, "90": 16.5}
 }
 
 # --- НАЗВАНИЯ ЧИТОВ ---
@@ -195,9 +188,9 @@ async def start_command(message: types.Message, state: FSMContext):
     cursor.execute('SELECT value FROM settings WHERE key="cheat_status"')
     status = cursor.fetchone()[0]
     
-    caption = (f"{tg_emoji('5339472242529045815', '🔥')} <b>Plutonium Store</b>\n\n"
-               f"{tg_emoji('5208846279714560254', '📈')} Статус ПО: {status}\n\n"
-               f"{tg_emoji('5208657859499282838', '👋')} Добро пожаловать!")
+    caption = (f"<tg-emoji emoji-id=\"5339472242529045815\">🔥</tg-emoji> <b>Plutonium Store</b>\n\n"
+               f"<tg-emoji emoji-id=\"5208846279714560254\">📈</tg-emoji> Статус ПО: {status}\n\n"
+               f"<tg-emoji emoji-id=\"5208657859499282838\">👋</tg-emoji> Добро пожаловать!")
     
     await message.answer_photo(
         photo="https://files.catbox.moe/916cwt.png", 
@@ -218,9 +211,9 @@ async def start_callback(call: types.CallbackQuery, state: FSMContext):
     cursor.execute('SELECT value FROM settings WHERE key="cheat_status"')
     status = cursor.fetchone()[0]
     
-    caption = (f"{tg_emoji('5339472242529045815', '🔥')} <b>Plutonium Store</b>\n\n"
-               f"{tg_emoji('5208846279714560254', '📈')} Статус ПО: {status}\n\n"
-               f"{tg_emoji('5208657859499282838', '👋')} Добро пожаловать!")
+    caption = (f"<tg-emoji emoji-id=\"5339472242529045815\">🔥</tg-emoji> <b>Plutonium Store</b>\n\n"
+               f"<tg-emoji emoji-id=\"5208846279714560254\">📈</tg-emoji> Статус ПО: {status}\n\n"
+               f"<tg-emoji emoji-id=\"5208657859499282838\">👋</tg-emoji> Добро пожаловать!")
     
     await call.message.edit_media(
         media=InputMediaPhoto(media="https://files.catbox.moe/916cwt.png", caption=caption), 
@@ -270,15 +263,15 @@ async def profile_callback(call: types.CallbackQuery):
             time_left = "Ошибка формата"
             product = res[1] if res[1] else "Plutonium"
     
-    cap = (f"{tg_emoji('5904630315946611415', '👤')} <b>Личный кабинет</b>\n\n"
-           f"{tg_emoji('6032693626394382504', '🆔')} <b>ID:</b> <code>{user_id}</code>\n"
-           f"{tg_emoji('5879770735999717115', '📛')} <b>Имя:</b> {call.from_user.first_name}\n"
-           f"{tg_emoji('5814247475141153332', '🔖')} <b>Username:</b> @{call.from_user.username or 'Нет'}\n"
-           f"{tg_emoji('6041730074376410123', '📦')} <b>Товар:</b> {product}\n"
-           f"{tg_emoji('5891211339170326418', '⏳')} <b>Осталось:</b> {time_left}")
+    cap = (f"<tg-emoji emoji-id=\"5904630315946611415\">👤</tg-emoji> <b>Личный кабинет</b>\n\n"
+           f"<tg-emoji emoji-id=\"6032693626394382504\">🆔</tg-emoji> <b>ID:</b> <code>{user_id}</code>\n"
+           f"<tg-emoji emoji-id=\"5879770735999717115\">📛</tg-emoji> <b>Имя:</b> {call.from_user.first_name}\n"
+           f"<tg-emoji emoji-id=\"5814247475141153332\">🔖</tg-emoji> <b>Username:</b> @{call.from_user.username or 'Нет'}\n"
+           f"<tg-emoji emoji-id=\"6041730074376410123\">📦</tg-emoji> <b>Товар:</b> {product}\n"
+           f"<tg-emoji emoji-id=\"5891211339170326418\">⏳</tg-emoji> <b>Осталось:</b> {time_left}")
     
     if last_key:
-        cap += f"\n{tg_emoji('6048733173171359488', '🔑')} <b>Ваш ключ:</b> <code>{last_key}</code>"
+        cap += f"\n<tg-emoji emoji-id=\"6048733173171359488\">🔑</tg-emoji> <b>Ваш ключ:</b> <code>{last_key}</code>"
     
     await call.message.edit_media(
         media=InputMediaPhoto(media="https://files.catbox.moe/5h6fr0.png", caption=cap), 
@@ -292,7 +285,7 @@ async def check_status(call: types.CallbackQuery):
     cursor.execute('SELECT value FROM settings WHERE key="cheat_status"')
     status = cursor.fetchone()[0]
     
-    cap = f"{tg_emoji('5208846279714560254', '📊')} <b>Статус ПО:</b> {status}"
+    cap = f"<tg-emoji emoji-id=\"5208846279714560254\">📊</tg-emoji> <b>Статус ПО:</b> {status}"
     
     await call.message.edit_media(
         media=InputMediaPhoto(media="https://files.catbox.moe/916cwt.png", caption=cap), 
@@ -307,7 +300,7 @@ async def reviews_callback(call: types.CallbackQuery):
         [url_btn("Канал с отзывами", "https://t.me/plutoniumrewiews", "6028171274939797252")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="start")]
     ])
-    cap = f"{tg_emoji('5938252440926163756', '⭐')} <b>Наши отзывы</b>"
+    cap = f"<tg-emoji emoji-id=\"5938252440926163756\">⭐</tg-emoji> <b>Наши отзывы</b>"
     await call.message.edit_media(
         media=InputMediaPhoto(media="https://files.catbox.moe/3z96th.png", caption=cap), 
         reply_markup=kb
@@ -322,7 +315,7 @@ async def buy_callback(call: types.CallbackQuery):
         [btn("PUBG Mobile", "game_pubg", "6073605466221451561")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="start")]
     ])
-    cap = f"{tg_emoji('5938413566624272793', '🎮')} <b>Выберите игру:</b>"
+    cap = f"<tg-emoji emoji-id=\"5938413566624272793\">🎮</tg-emoji> <b>Выберите игру:</b>"
     await call.message.edit_media(
         media=InputMediaPhoto(media="https://files.catbox.moe/1u2tb9.png", caption=cap),
         reply_markup=kb
@@ -336,8 +329,8 @@ async def so2_menu(call: types.CallbackQuery):
         [btn("Plutonium", "cheat_so2", "5339472242529045815")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy_key")]
     ])
-    cap = (f"{tg_emoji('5393134637667094112', '⚙️')} <b>Standoff 2</b>\n"
-           f"{tg_emoji('5938413566624272793', '🎮')} Выберите чит:")
+    cap = (f"<tg-emoji emoji-id=\"5393134637667094112\">⚙️</tg-emoji> <b>Standoff 2</b>\n"
+           f"<tg-emoji emoji-id=\"5938413566624272793\">🎮</tg-emoji> Выберите чит:")
     await call.message.edit_media(
         media=InputMediaPhoto(media="https://files.catbox.moe/ljpeoi.png", caption=cap),
         reply_markup=kb
@@ -355,7 +348,7 @@ async def pubg_menu(call: types.CallbackQuery):
         [btn("Zolo CIS", "cheat_zolo_cis", "5451841459009379088")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy_key")]
     ])
-    cap = f"{tg_emoji('6073605466221451561', '🎯')} <b>PUBG Mobile</b>\nВыберите чит:"
+    cap = f"<tg-emoji emoji-id=\"6073605466221451561\">🎯</tg-emoji> <b>PUBG Mobile</b>\nВыберите чит:"
     await call.message.edit_media(
         media=InputMediaPhoto(media="https://files.catbox.moe/1u2tb9.png", caption=cap),
         reply_markup=kb
@@ -453,11 +446,11 @@ async def bank_payment(call: types.CallbackQuery, state: FSMContext):
     else:
         price = PRICES[cheat][days]
     
-    cap = (f"{tg_emoji('5890848474563352982', '💳')} <b>Оплата банковской картой</b>\n\n"
-           f"{tg_emoji('5890848474563352982', '💰')} <b>Сумма:</b> {price}\n"
-           f"{tg_emoji('5890848474563352982', '💳')} <b>Карта:</b> <code>{CARD}</code>\n"
-           f"{tg_emoji('5891105528356018797', '❗')} <b>Комментарий:</b> За цифрові товари\n\n"
-           f"{tg_emoji('5769126056262898415', '📸')} После оплаты нажмите кнопку ниже и пришлите скриншот")
+    cap = (f"<tg-emoji emoji-id=\"5890848474563352982\">💳</tg-emoji> <b>Оплата банковской картой</b>\n\n"
+           f"<tg-emoji emoji-id=\"5890848474563352982\">💰</tg-emoji> <b>Сумма:</b> {price}\n"
+           f"<tg-emoji emoji-id=\"5890848474563352982\">💳</tg-emoji> <b>Карта:</b> <code>{CARD}</code>\n"
+           f"<tg-emoji emoji-id=\"5891105528356018797\">❗</tg-emoji> <b>Комментарий:</b> За цифрові товари\n\n"
+           f"<tg-emoji emoji-id=\"5769126056262898415\">📸</tg-emoji> После оплаты нажмите кнопку ниже и пришлите скриншот")
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [btn("Я оплатил", "send_receipt", "5258205968025525531")],
@@ -496,7 +489,7 @@ async def crypto_payment(call: types.CallbackQuery, state: FSMContext):
     ''', (str(invoice["invoice_id"]), call.from_user.id, amount, days, cheat, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
     conn.commit()
     
-    cap = (f"{tg_emoji('5390816416184174666', '💎')} <b>Оплата через CryptoBot</b>\n\n"
+    cap = (f"<tg-emoji emoji-id=\"5390816416184174666\">💎</tg-emoji> <b>Оплата через CryptoBot</b>\n\n"
            f"💰 <b>Сумма:</b> {amount}$\n"
            f"📅 <b>Тариф:</b> {days} дней")
     
@@ -535,13 +528,13 @@ async def check_crypto_payment_callback(call: types.CallbackQuery):
             conn.commit()
             
             await call.message.edit_text(
-                f"{tg_emoji('5938252440926163756', '✅')} <b>Оплата подтверждена!</b>\n\n📅 Подписка до {expiry_date}",
+                f"<tg-emoji emoji-id=\"5938252440926163756\">✅</tg-emoji> <b>Оплата подтверждена!</b>\n\n📅 Подписка до {expiry_date}",
                 reply_markup=get_back_button("start")
             )
             
             await bot.send_message(
                 ADMIN_ID,
-                f"{tg_emoji('6039486778597970865', '💰')} <b>Новый крипто-платёж</b>\n👤 {target_id}\n📅 {days} дней\n💎 {CHEAT_NAMES[product]}"
+                f"<tg-emoji emoji-id=\"6039486778597970865\">💰</tg-emoji> <b>Новый крипто-платёж</b>\n👤 {target_id}\n📅 {days} дней\n💎 {CHEAT_NAMES[product]}"
             )
     else:
         await call.answer("⏳ Платёж ещё не подтверждён", show_alert=True)
@@ -558,7 +551,7 @@ async def receipt_callback(call: types.CallbackQuery, state: FSMContext):
         await state.clear()
         return
     
-    await call.message.answer(f"{tg_emoji('5769126056262898415', '📸')} <b>Отправьте скриншот чека</b> (одним фото)")
+    await call.message.answer(f"<tg-emoji emoji-id=\"5769126056262898415\">📸</tg-emoji> <b>Отправьте скриншот чека</b> (одним фото)")
     await state.set_state(OrderState.waiting_for_receipt)
 
 @dp.message(OrderState.waiting_for_receipt, F.photo)
@@ -578,13 +571,13 @@ async def handle_receipt(message: types.Message, state: FSMContext):
     await bot.send_photo(
         ADMIN_ID,
         message.photo[-1].file_id,
-        caption=f"{tg_emoji('6039486778597970865', '🔔')} <b>Чек от {message.from_user.id}</b>\n"
+        caption=f"<tg-emoji emoji-id=\"6039486778597970865\">🔔</tg-emoji> <b>Чек от {message.from_user.id}</b>\n"
                 f"📦 Товар: {CHEAT_NAMES[data['product']]}\n"
                 f"📅 Тариф: {data['days']} дней",
         reply_markup=adm_kb
     )
     
-    await message.answer(f"{tg_emoji('5938252440926163756', '✅')} Чек отправлен администратору! Ожидайте подтверждения.")
+    await message.answer(f"<tg-emoji emoji-id=\"5938252440926163756\">✅</tg-emoji> Чек отправлен администратору! Ожидайте подтверждения.")
     await state.clear()
 
 # ---------- РЕШЕНИЕ АДМИНА ----------
@@ -601,12 +594,12 @@ async def admin_decision(call: types.CallbackQuery, state: FSMContext):
             product=parts[3],
             days=parts[4]
         )
-        await call.message.answer(f"{tg_emoji('6037373985400819577', '📎')} <b>Отправьте файл с читом</b> (или текст с инструкцией)")
+        await call.message.answer(f"<tg-emoji emoji-id=\"6037373985400819577\">📎</tg-emoji> <b>Отправьте файл с читом</b> (или текст с инструкцией)")
         await state.set_state(OrderState.waiting_for_admin_file)
         await call.answer("✅ Одобрено")
         await call.message.delete()
     else:
-        await bot.send_message(int(parts[2]), f"{tg_emoji('5208480322731137426', '❌')} Ваша оплата была отклонена администратором.")
+        await bot.send_message(int(parts[2]), f"<tg-emoji emoji-id=\"5208480322731137426\">❌</tg-emoji> Ваша оплата была отклонена администратором.")
         await call.message.delete()
         await call.answer("❌ Отклонено")
 
@@ -629,7 +622,7 @@ async def admin_file_input(message: types.Message, state: FSMContext):
         file_text = message.text
     
     await state.update_data(file=file_id, file_text=file_text)
-    await message.answer(f"{tg_emoji('6048733173171359488', '🔑')} <b>Введите ключ активации</b>")
+    await message.answer(f"<tg-emoji emoji-id=\"6048733173171359488\">🔑</tg-emoji> <b>Введите ключ активации</b>")
     await state.set_state(OrderState.waiting_for_admin_key)
 
 # ---------- КЛЮЧ ОТ АДМИНА ----------
@@ -652,20 +645,20 @@ async def admin_key_input(message: types.Message, state: FSMContext):
     ''', (target_id, expiry_date, product_name, target_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), message.text))
     conn.commit()
     
-    text = (f"{tg_emoji('5938252440926163756', '✅')} <b>Заказ активирован!</b>\n\n"
-            f"{tg_emoji('5208474816583063829', '📅')} <b>Действует до:</b> {expiry_date}\n"
-            f"{tg_emoji('6048733173171359488', '🔑')} <b>Ключ:</b> <code>{message.text}</code>\n\n"
-            f"{tg_emoji('5413879192267805083', '💜')} Благодарим за покупку в Plutonium Store!")
+    text = (f"<tg-emoji emoji-id=\"5938252440926163756\">✅</tg-emoji> <b>Заказ активирован!</b>\n\n"
+            f"<tg-emoji emoji-id=\"5208474816583063829\">📅</tg-emoji> <b>Действует до:</b> {expiry_date}\n"
+            f"<tg-emoji emoji-id=\"6048733173171359488\">🔑</tg-emoji> <b>Ключ:</b> <code>{message.text}</code>\n\n"
+            f"<tg-emoji emoji-id=\"5413879192267805083\">💜</tg-emoji> Благодарим за покупку в Plutonium Store!")
     
     try:
         if data.get('file'):
             await bot.send_document(target_id, data['file'], caption=text)
         elif data.get('file_text'):
-            await bot.send_message(target_id, text + f"\n\n{tg_emoji('6039348811363520645', '📝')} {data['file_text']}")
+            await bot.send_message(target_id, text + f"\n\n<tg-emoji emoji-id=\"6039348811363520645\">📝</tg-emoji> {data['file_text']}")
         else:
             await bot.send_message(target_id, text)
         
-        await message.answer(f"{tg_emoji('5208422125924275090', '✅')} Готово! Товар выдан пользователю.")
+        await message.answer(f"<tg-emoji emoji-id=\"5208422125924275090\">✅</tg-emoji> Готово! Товар выдан пользователю.")
     except Exception as e:
         await message.answer(f"❌ Ошибка при отправке: {e}")
     
@@ -687,7 +680,7 @@ async def broadcast_start(message: types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
     
-    await message.answer(f"{tg_emoji('5208846279714560254', '📢')} <b>Отправь сообщение для рассылки</b> (текст, фото, видео или документ)")
+    await message.answer(f"<tg-emoji emoji-id=\"5208846279714560254\">📢</tg-emoji> <b>Отправь сообщение для рассылки</b> (текст, фото, видео или документ)")
     await state.set_state(OrderState.broadcast_text)
 
 @dp.message(OrderState.broadcast_text)
@@ -723,7 +716,7 @@ async def broadcast_send(message: types.Message, state: FSMContext):
         except:
             pass
     
-    await status.edit_text(f"{tg_emoji('5938252440926163756', '✅')} Рассылка завершена!\n✅ Успешно: {success}\n❌ Ошибок: {len(users)-success}")
+    await status.edit_text(f"<tg-emoji emoji-id=\"5938252440926163756\">✅</tg-emoji> Рассылка завершена!\n✅ Успешно: {success}\n❌ Ошибок: {len(users)-success}")
     await state.clear()
 
 @dp.message(Command("ban"))
