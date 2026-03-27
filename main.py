@@ -6,7 +6,7 @@ import requests
 from datetime import datetime, timedelta
 
 # --- НАСТРОЙКИ ---
-BOT_TOKEN = "8522948833:AAFPgQz77GDY2YafZRtNMM9ilcxZ65_2wus"
+BOT_TOKEN = "8651326096:AAFBOQ-GPNJKON6KGic81DvxHjH-XDXwYFM"
 ADMIN_ID = 1471307057
 CARD = "4441111008011946"
 WEBAPP_URL = "https://rocket-online.vercel.app"
