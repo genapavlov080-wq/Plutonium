@@ -24,17 +24,17 @@ CRYPTO_API = "https://pay.crypt.bot/api"
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
-# --- ФУНКЦИЯ ДЛЯ ТЕКСТА ---
-def tg_emoji(emoji_id: str, char: str) -> str:
+# --- ФУНКЦИЯ ДЛЯ ТЕКСТА (как в файловом боте) ---
+def e(emoji_id: str, char: str = "●") -> str:
     return f'<tg-emoji emoji-id="{emoji_id}">{char}</tg-emoji>'
 
-# --- КНОПКИ ---
-def btn(text: str, callback: str, emoji_id: str = None):
+# --- КНОПКИ (как в файловом боте) ---
+def ib(text: str, callback: str, emoji_id: str = None):
     if emoji_id:
         return InlineKeyboardButton(text=text, callback_data=callback, icon_custom_emoji_id=emoji_id)
     return InlineKeyboardButton(text=text, callback_data=callback)
 
-def url_btn(text: str, url: str, emoji_id: str = None):
+def ub(text: str, url: str, emoji_id: str = None):
     if emoji_id:
         return InlineKeyboardButton(text=text, url=url, icon_custom_emoji_id=emoji_id)
     return InlineKeyboardButton(text=text, url=url)
@@ -84,7 +84,6 @@ cursor.execute('''
         last_key TEXT
     )
 ''')
-
 cursor.execute('''
     CREATE TABLE IF NOT EXISTS crypto_payments (
         payment_id TEXT PRIMARY KEY,
@@ -96,7 +95,6 @@ cursor.execute('''
         created_at TEXT
     )
 ''')
-
 cursor.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)')
 cursor.execute('INSERT OR IGNORE INTO settings VALUES ("cheat_status", "🟢 UNDETECTED")')
 conn.commit()
@@ -108,258 +106,178 @@ class OrderState(StatesGroup):
     waiting_for_admin_key = State()
     broadcast_text = State()
 
-# --- КЛАВИАТУРЫ ---
-def get_main_keyboard():
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [btn("Купить ключ", "buy_key", "5156877291397055163"),
-         btn("Мой профиль", "profile", "5904630315946611415")],
-        [btn("Наши отзывы", "show_reviews", "5938252440926163756"),
-         btn("Статус ПО", "check_status", "5208846279714560254")],
-        [url_btn("Plutonium Store", WEBAPP_URL, "5339472242529045815")],
-        [url_btn("Техподдержка", "https://t.me/IllyaGarant", "5208539876747662991")]
-    ])
-
-def get_back_button(target: str):
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="⬅️ Назад", callback_data=target)]
-    ])
-
-# --- ФУНКЦИИ CRYPTOBOT ---
-async def create_crypto_invoice(user_id, amount, days, product):
-    url = f"{CRYPTO_API}/createInvoice"
-    headers = {"Crypto-Pay-API-Token": CRYPTO_TOKEN}
-    data = {
-        "asset": "USDT",
-        "amount": amount,
-        "description": f"{CHEAT_NAMES[product]} - {days} дней",
-        "paid_btn_name": "openBot",
-        "paid_btn_url": f"https://t.me/{(await bot.get_me()).username}",
-        "payload": f"{user_id}|{days}|{product}"
-    }
-    
-    try:
-        response = requests.post(url, headers=headers, json=data)
-        if response.status_code == 200:
-            result = response.json()
-            if result.get("ok"):
-                return result["result"]
-    except Exception as e:
-        print(f"CryptoBot error: {e}")
-    return None
-
-async def check_crypto_payment(payment_id):
-    url = f"{CRYPTO_API}/getInvoices"
-    headers = {"Crypto-Pay-API-Token": CRYPTO_TOKEN}
-    params = {"invoice_ids": payment_id}
-    
-    try:
-        response = requests.get(url, headers=headers, params=params)
-        if response.status_code == 200:
-            result = response.json()
-            if result.get("ok") and result.get("result", {}).get("items"):
-                return result["result"]["items"][0]
-    except:
-        pass
-    return None
-
-# --- ПРОВЕРКА БАНА ---
-async def check_ban(user_id):
-    cursor.execute('SELECT banned, ban_reason FROM users WHERE user_id = ?', (user_id,))
-    res = cursor.fetchone()
-    if res and res[0] == 1:
-        return True, res[1]
-    return False, None
-
 # ---------- СТАРТ ----------
 @dp.message(Command("start"))
 async def start_command(message: types.Message, state: FSMContext):
     await state.clear()
-    user_id = int(message.from_user.id)
+    user_id = message.from_user.id
     
-    banned, reason = await check_ban(user_id)
-    if banned:
-        await message.answer(f"⛔️ <b>Вы заблокированы</b>\nПричина: {reason}")
+    banned = cursor.execute('SELECT banned FROM users WHERE user_id = ?', (user_id,)).fetchone()
+    if banned and banned[0]:
+        await message.answer("⛔ Вы заблокированы")
         return
     
     cursor.execute('INSERT OR IGNORE INTO users (user_id, subscribed_at) VALUES (?, ?)', 
                   (user_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
     conn.commit()
     
-    cursor.execute('SELECT value FROM settings WHERE key="cheat_status"')
-    status = cursor.fetchone()[0]
+    status = cursor.execute('SELECT value FROM settings WHERE key="cheat_status"').fetchone()[0]
     
-    caption = (f"<tg-emoji emoji-id=\"5339472242529045815\">🔥</tg-emoji> <b>Plutonium Store</b>\n\n"
-               f"<tg-emoji emoji-id=\"5208846279714560254\">📈</tg-emoji> Статус ПО: {status}\n\n"
-               f"<tg-emoji emoji-id=\"5208657859499282838\">👋</tg-emoji> Добро пожаловать!")
+    text = (f"{e('5339472242529045815', '🔥')} <b>Plutonium Store</b>\n\n"
+            f"{e('5208846279714560254', '📈')} Статус ПО: {status}\n\n"
+            f"{e('5208657859499282838', '👋')} Добро пожаловать!")
     
-    await message.answer_photo(
-        photo="https://files.catbox.moe/916cwt.png", 
-        caption=caption, 
-        reply_markup=get_main_keyboard()
-    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [ib("Купить ключ", "buy_key", "5156877291397055163"),
+         ib("Мой профиль", "profile", "5904630315946611415")],
+        [ib("Наши отзывы", "show_reviews", "5938252440926163756"),
+         ib("Статус ПО", "check_status", "5208846279714560254")],
+        [ub("Plutonium Store", WEBAPP_URL, "5339472242529045815")],
+        [ub("Техподдержка", "https://t.me/IllyaGarant", "5208539876747662991")]
+    ])
+    
+    await message.answer_photo(photo="https://files.catbox.moe/916cwt.png", caption=text, reply_markup=kb)
 
 @dp.callback_query(F.data == "start")
 async def start_callback(call: types.CallbackQuery, state: FSMContext):
     await state.clear()
     await call.answer()
     
-    banned, reason = await check_ban(call.from_user.id)
-    if banned:
-        await call.message.edit_text(f"⛔️ <b>Вы заблокированы</b>\nПричина: {reason}")
+    banned = cursor.execute('SELECT banned FROM users WHERE user_id = ?', (call.from_user.id,)).fetchone()
+    if banned and banned[0]:
+        await call.message.edit_text("⛔ Вы заблокированы")
         return
     
-    cursor.execute('SELECT value FROM settings WHERE key="cheat_status"')
-    status = cursor.fetchone()[0]
+    status = cursor.execute('SELECT value FROM settings WHERE key="cheat_status"').fetchone()[0]
     
-    caption = (f"<tg-emoji emoji-id=\"5339472242529045815\">🔥</tg-emoji> <b>Plutonium Store</b>\n\n"
-               f"<tg-emoji emoji-id=\"5208846279714560254\">📈</tg-emoji> Статус ПО: {status}\n\n"
-               f"<tg-emoji emoji-id=\"5208657859499282838\">👋</tg-emoji> Добро пожаловать!")
+    text = (f"{e('5339472242529045815', '🔥')} <b>Plutonium Store</b>\n\n"
+            f"{e('5208846279714560254', '📈')} Статус ПО: {status}\n\n"
+            f"{e('5208657859499282838', '👋')} Добро пожаловать!")
     
-    await call.message.edit_media(
-        media=InputMediaPhoto(media="https://files.catbox.moe/916cwt.png", caption=caption), 
-        reply_markup=get_main_keyboard()
-    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [ib("Купить ключ", "buy_key", "5156877291397055163"),
+         ib("Мой профиль", "profile", "5904630315946611415")],
+        [ib("Наши отзывы", "show_reviews", "5938252440926163756"),
+         ib("Статус ПО", "check_status", "5208846279714560254")],
+        [ub("Plutonium Store", WEBAPP_URL, "5339472242529045815")],
+        [ub("Техподдержка", "https://t.me/IllyaGarant", "5208539876747662991")]
+    ])
+    
+    await call.message.edit_media(media=InputMediaPhoto(media="https://files.catbox.moe/916cwt.png", caption=text), reply_markup=kb)
 
 # ---------- ПРОФИЛЬ ----------
 @dp.callback_query(F.data == "profile")
 async def profile_callback(call: types.CallbackQuery):
     await call.answer()
-    user_id = int(call.from_user.id)
+    user_id = call.from_user.id
     
-    banned, reason = await check_ban(user_id)
-    if banned:
-        await call.message.edit_text(f"⛔️ <b>Вы заблокированы</b>\nПричина: {reason}")
+    banned = cursor.execute('SELECT banned FROM users WHERE user_id = ?', (user_id,)).fetchone()
+    if banned and banned[0]:
+        await call.message.edit_text("⛔ Вы заблокированы")
         return
     
-    cursor.execute('SELECT expiry_date, product_name, last_key FROM users WHERE user_id = ?', (user_id,))
-    res = cursor.fetchone()
+    res = cursor.execute('SELECT expiry_date, product_name, last_key FROM users WHERE user_id = ?', (user_id,)).fetchone()
     
     time_left = "Нет активной подписки"
     product = "Нет"
     last_key = ""
     
-    if res and res[0] and res[0] is not None:
+    if res and res[0]:
         try:
-            expiry_date = datetime.strptime(res[0], '%Y-%m-%d %H:%M:%S')
-            diff = expiry_date - datetime.now()
-            
+            expiry = datetime.strptime(res[0], '%Y-%m-%d %H:%M:%S')
+            diff = expiry - datetime.now()
             if diff.total_seconds() > 0:
                 days = diff.days
                 hours = diff.seconds // 3600
-                minutes = (diff.seconds % 3600) // 60
-                
                 if days > 0:
                     time_left = f"{days} дн. {hours} ч."
                 else:
-                    time_left = f"{hours} ч. {minutes} мин."
-                
+                    time_left = f"{hours} ч."
                 product = res[1] if res[1] else "Plutonium"
                 last_key = res[2] if res[2] else ""
             else:
                 time_left = "❌ Истекла"
                 product = res[1] if res[1] else "Plutonium"
-        except Exception as e:
-            print(f"Error parsing date: {e}")
-            time_left = "Ошибка формата"
-            product = res[1] if res[1] else "Plutonium"
+        except:
+            pass
     
-    cap = (f"<tg-emoji emoji-id=\"5904630315946611415\">👤</tg-emoji> <b>Личный кабинет</b>\n\n"
-           f"<tg-emoji emoji-id=\"6032693626394382504\">🆔</tg-emoji> <b>ID:</b> <code>{user_id}</code>\n"
-           f"<tg-emoji emoji-id=\"5879770735999717115\">📛</tg-emoji> <b>Имя:</b> {call.from_user.first_name}\n"
-           f"<tg-emoji emoji-id=\"5814247475141153332\">🔖</tg-emoji> <b>Username:</b> @{call.from_user.username or 'Нет'}\n"
-           f"<tg-emoji emoji-id=\"6041730074376410123\">📦</tg-emoji> <b>Товар:</b> {product}\n"
-           f"<tg-emoji emoji-id=\"5891211339170326418\">⏳</tg-emoji> <b>Осталось:</b> {time_left}")
+    text = (f"{e('5904630315946611415', '👤')} <b>Личный кабинет</b>\n\n"
+            f"{e('6032693626394382504', '🆔')} <b>ID:</b> <code>{user_id}</code>\n"
+            f"{e('5879770735999717115', '📛')} <b>Имя:</b> {call.from_user.first_name}\n"
+            f"{e('5814247475141153332', '🔖')} <b>Username:</b> @{call.from_user.username or 'Нет'}\n"
+            f"{e('6041730074376410123', '📦')} <b>Товар:</b> {product}\n"
+            f"{e('5891211339170326418', '⏳')} <b>Осталось:</b> {time_left}")
     
     if last_key:
-        cap += f"\n<tg-emoji emoji-id=\"6048733173171359488\">🔑</tg-emoji> <b>Ваш ключ:</b> <code>{last_key}</code>"
+        text += f"\n{e('6048733173171359488', '🔑')} <b>Ваш ключ:</b> <code>{last_key}</code>"
     
-    await call.message.edit_media(
-        media=InputMediaPhoto(media="https://files.catbox.moe/5h6fr0.png", caption=cap), 
-        reply_markup=get_back_button("start")
-    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data="start")]])
+    await call.message.edit_media(media=InputMediaPhoto(media="https://files.catbox.moe/5h6fr0.png", caption=text), reply_markup=kb)
 
 # ---------- СТАТУС ----------
 @dp.callback_query(F.data == "check_status")
 async def check_status(call: types.CallbackQuery):
     await call.answer()
-    cursor.execute('SELECT value FROM settings WHERE key="cheat_status"')
-    status = cursor.fetchone()[0]
-    
-    cap = f"<tg-emoji emoji-id=\"5208846279714560254\">📊</tg-emoji> <b>Статус ПО:</b> {status}"
-    
-    await call.message.edit_media(
-        media=InputMediaPhoto(media="https://files.catbox.moe/916cwt.png", caption=cap), 
-        reply_markup=get_back_button("start")
-    )
+    status = cursor.execute('SELECT value FROM settings WHERE key="cheat_status"').fetchone()[0]
+    text = f"{e('5208846279714560254', '📊')} <b>Статус ПО:</b> {status}"
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data="start")]])
+    await call.message.edit_media(media=InputMediaPhoto(media="https://files.catbox.moe/916cwt.png", caption=text), reply_markup=kb)
 
 # ---------- ОТЗЫВЫ ----------
 @dp.callback_query(F.data == "show_reviews")
 async def reviews_callback(call: types.CallbackQuery):
     await call.answer()
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [url_btn("Канал с отзывами", "https://t.me/plutoniumrewiews", "6028171274939797252")],
+        [ub("Канал с отзывами", "https://t.me/plutoniumrewiews", "6028171274939797252")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="start")]
     ])
-    cap = f"<tg-emoji emoji-id=\"5938252440926163756\">⭐</tg-emoji> <b>Наши отзывы</b>"
-    await call.message.edit_media(
-        media=InputMediaPhoto(media="https://files.catbox.moe/3z96th.png", caption=cap), 
-        reply_markup=kb
-    )
+    text = f"{e('5938252440926163756', '⭐')} <b>Наши отзывы</b>"
+    await call.message.edit_media(media=InputMediaPhoto(media="https://files.catbox.moe/3z96th.png", caption=text), reply_markup=kb)
 
 # ---------- МЕНЮ ПОКУПКИ ----------
 @dp.callback_query(F.data == "buy_key")
 async def buy_callback(call: types.CallbackQuery):
     await call.answer()
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [btn("Standoff 2", "game_so2", "5393134637667094112")],
-        [btn("PUBG Mobile", "game_pubg", "6073605466221451561")],
+        [ib("Standoff 2", "game_so2", "5393134637667094112")],
+        [ib("PUBG Mobile", "game_pubg", "6073605466221451561")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="start")]
     ])
-    cap = f"<tg-emoji emoji-id=\"5938413566624272793\">🎮</tg-emoji> <b>Выберите игру:</b>"
-    await call.message.edit_media(
-        media=InputMediaPhoto(media="https://files.catbox.moe/1u2tb9.png", caption=cap),
-        reply_markup=kb
-    )
+    text = f"{e('5938413566624272793', '🎮')} <b>Выберите игру:</b>"
+    await call.message.edit_media(media=InputMediaPhoto(media="https://files.catbox.moe/1u2tb9.png", caption=text), reply_markup=kb)
 
 # ---------- STANDOFF 2 ----------
 @dp.callback_query(F.data == "game_so2")
 async def so2_menu(call: types.CallbackQuery):
     await call.answer()
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [btn("Plutonium", "cheat_so2", "5339472242529045815")],
+        [ib("Plutonium", "cheat_so2", "5339472242529045815")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy_key")]
     ])
-    cap = (f"<tg-emoji emoji-id=\"5393134637667094112\">⚙️</tg-emoji> <b>Standoff 2</b>\n"
-           f"<tg-emoji emoji-id=\"5938413566624272793\">🎮</tg-emoji> Выберите чит:")
-    await call.message.edit_media(
-        media=InputMediaPhoto(media="https://files.catbox.moe/ljpeoi.png", caption=cap),
-        reply_markup=kb
-    )
+    text = (f"{e('5393134637667094112', '⚙️')} <b>Standoff 2</b>\n"
+            f"{e('5938413566624272793', '🎮')} Выберите чит:")
+    await call.message.edit_media(media=InputMediaPhoto(media="https://files.catbox.moe/ljpeoi.png", caption=text), reply_markup=kb)
 
 # ---------- PUBG ----------
 @dp.callback_query(F.data == "game_pubg")
 async def pubg_menu(call: types.CallbackQuery):
     await call.answer()
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [btn("Zolo", "cheat_zolo", "5451653043089070124")],
-        [btn("Impact VIP", "cheat_impact", "5276079251089547977")],
-        [btn("King Mod", "cheat_king", "6172520285330214110")],
-        [btn("Inferno", "cheat_inferno", "5296273418516187626")],
-        [btn("Zolo CIS", "cheat_zolo_cis", "5451841459009379088")],
+        [ib("Zolo", "cheat_zolo", "5451653043089070124")],
+        [ib("Impact VIP", "cheat_impact", "5276079251089547977")],
+        [ib("King Mod", "cheat_king", "6172520285330214110")],
+        [ib("Inferno", "cheat_inferno", "5296273418516187626")],
+        [ib("Zolo CIS", "cheat_zolo_cis", "5451841459009379088")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy_key")]
     ])
-    cap = f"<tg-emoji emoji-id=\"6073605466221451561\">🎯</tg-emoji> <b>PUBG Mobile</b>\nВыберите чит:"
-    await call.message.edit_media(
-        media=InputMediaPhoto(media="https://files.catbox.moe/1u2tb9.png", caption=cap),
-        reply_markup=kb
-    )
+    text = f"{e('6073605466221451561', '🎯')} <b>PUBG Mobile</b>\nВыберите чит:"
+    await call.message.edit_media(media=InputMediaPhoto(media="https://files.catbox.moe/1u2tb9.png", caption=text), reply_markup=kb)
 
 # ---------- ПОКАЗ ЧИТА ----------
 async def show_cheat(call: types.CallbackQuery, cheat: str):
     await call.answer()
     
     desc = f"{CHEAT_NAMES[cheat]}\n\n💰 <b>Цены:</b>\n"
-    
     for days, price in PRICES[cheat].items():
         days_text = f"{days} дн." if days != "1" else "1 день"
         if cheat == "so2":
@@ -367,23 +285,17 @@ async def show_cheat(call: types.CallbackQuery, cheat: str):
             desc += f"├ {days_text}: {usd} / {uah}\n"
         else:
             desc += f"├ {days_text}: {price}\n"
-    
     desc += "\n💳 <b>Выберите период:</b>"
     
     buttons = []
     for days in PRICES[cheat].keys():
         days_text = f"{days} дн." if days != "1" else "1 день"
-        buttons.append([btn(days_text, f"period_{cheat}_{days}", "5393330385096575682")])
+        buttons.append([ib(days_text, f"period_{cheat}_{days}", "5393330385096575682")])
     
     game = "game_so2" if cheat == "so2" else "game_pubg"
     buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data=game)])
     
-    kb = InlineKeyboardMarkup(inline_keyboard=buttons)
-    
-    await call.message.edit_media(
-        media=InputMediaPhoto(media=CHEAT_PHOTOS[cheat], caption=desc),
-        reply_markup=kb
-    )
+    await call.message.edit_media(media=InputMediaPhoto(media=CHEAT_PHOTOS[cheat], caption=desc), reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
 
 # ---------- ОБРАБОТЧИКИ ЧИТОВ ----------
 @dp.callback_query(F.data == "cheat_so2")
@@ -404,140 +316,132 @@ async def cheat_zolo_cis(call: types.CallbackQuery): await show_cheat(call, "zol
 async def select_period(call: types.CallbackQuery, state: FSMContext):
     await call.answer()
     parts = call.data.split("_")
-    cheat = parts[1]
-    days = parts[2]
-    
+    cheat, days = parts[1], parts[2]
     await state.update_data(product=cheat, days=days)
     
     desc = f"{CHEAT_NAMES[cheat]}\n\n📅 {days} дн.\n"
-    
     if cheat == "so2":
         uah, usd = PRICES[cheat][days]
         desc += f"💰 {usd} / {uah}"
     else:
         desc += f"💰 {PRICES[cheat][days]}"
-    
     desc += "\n\n💳 <b>Выберите способ оплаты:</b>"
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [btn("Укр Банк", f"bank_{cheat}_{days}", "5393576224729633040")],
-        [btn("CryptoBot", f"crypto_{cheat}_{days}", "5390816416184174666")],
+        [ib("Укр Банк", f"bank_{cheat}_{days}", "5393576224729633040")],
+        [ib("CryptoBot", f"crypto_{cheat}_{days}", "5390816416184174666")],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"cheat_{cheat}")]
     ])
-    
-    await call.message.edit_media(
-        media=InputMediaPhoto(media=CHEAT_PHOTOS[cheat], caption=desc),
-        reply_markup=kb
-    )
+    await call.message.edit_media(media=InputMediaPhoto(media=CHEAT_PHOTOS[cheat], caption=desc), reply_markup=kb)
 
 # ---------- ОПЛАТА БАНКОМ ----------
 @dp.callback_query(F.data.startswith("bank_"))
 async def bank_payment(call: types.CallbackQuery, state: FSMContext):
     await call.answer()
     parts = call.data.split("_")
-    cheat = parts[1]
-    days = parts[2]
-    
+    cheat, days = parts[1], parts[2]
     await state.update_data(product=cheat, days=days, method="bank")
     
-    if cheat == "so2":
-        uah, _ = PRICES[cheat][days]
-        price = uah
-    else:
-        price = PRICES[cheat][days]
+    price = PRICES[cheat][days][0] if cheat == "so2" else PRICES[cheat][days]
     
-    cap = (f"<tg-emoji emoji-id=\"5890848474563352982\">💳</tg-emoji> <b>Оплата банковской картой</b>\n\n"
-           f"<tg-emoji emoji-id=\"5890848474563352982\">💰</tg-emoji> <b>Сумма:</b> {price}\n"
-           f"<tg-emoji emoji-id=\"5890848474563352982\">💳</tg-emoji> <b>Карта:</b> <code>{CARD}</code>\n"
-           f"<tg-emoji emoji-id=\"5891105528356018797\">❗</tg-emoji> <b>Комментарий:</b> За цифрові товари\n\n"
-           f"<tg-emoji emoji-id=\"5769126056262898415\">📸</tg-emoji> После оплаты нажмите кнопку ниже и пришлите скриншот")
+    text = (f"{e('5890848474563352982', '💳')} <b>Оплата банковской картой</b>\n\n"
+            f"{e('5890848474563352982', '💰')} <b>Сумма:</b> {price}\n"
+            f"{e('5890848474563352982', '💳')} <b>Карта:</b> <code>{CARD}</code>\n"
+            f"{e('5891105528356018797', '❗')} <b>Комментарий:</b> За цифрові товари\n\n"
+            f"{e('5769126056262898415', '📸')} После оплаты нажмите кнопку ниже и пришлите скриншот")
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [btn("Я оплатил", "send_receipt", "5258205968025525531")],
-        [btn("Отмена", "start", "5208480322731137426")]
+        [ib("Я оплатил", "send_receipt", "5258205968025525531")],
+        [ib("Отмена", "start", "5208480322731137426")]
     ])
-    
-    await call.message.edit_media(
-        media=InputMediaPhoto(media=CHEAT_PHOTOS[cheat], caption=cap),
-        reply_markup=kb
-    )
+    await call.message.edit_media(media=InputMediaPhoto(media=CHEAT_PHOTOS[cheat], caption=text), reply_markup=kb)
 
 # ---------- ОПЛАТА CRYPTO ----------
+async def create_crypto_invoice(user_id, amount, days, product):
+    url = f"{CRYPTO_API}/createInvoice"
+    headers = {"Crypto-Pay-API-Token": CRYPTO_TOKEN}
+    data = {
+        "asset": "USDT",
+        "amount": amount,
+        "description": f"{CHEAT_NAMES[product]} - {days} дней",
+        "paid_btn_name": "openBot",
+        "paid_btn_url": f"https://t.me/{(await bot.get_me()).username}",
+        "payload": f"{user_id}|{days}|{product}"
+    }
+    try:
+        r = requests.post(url, headers=headers, json=data)
+        if r.status_code == 200 and r.json().get("ok"):
+            return r.json()["result"]
+    except: pass
+    return None
+
+async def check_crypto_payment(payment_id):
+    url = f"{CRYPTO_API}/getInvoices"
+    headers = {"Crypto-Pay-API-Token": CRYPTO_TOKEN}
+    params = {"invoice_ids": payment_id}
+    try:
+        r = requests.get(url, headers=headers, params=params)
+        if r.status_code == 200 and r.json().get("ok"):
+            items = r.json()["result"].get("items", [])
+            if items:
+                return items[0]
+    except: pass
+    return None
+
 @dp.callback_query(F.data.startswith("crypto_"))
 async def crypto_payment(call: types.CallbackQuery, state: FSMContext):
     await call.answer()
     parts = call.data.split("_")
-    cheat = parts[1]
-    days = parts[2]
+    cheat, days = parts[1], parts[2]
     
     if cheat == "so2":
-        _, usd = PRICES[cheat][days]
-        amount = float(usd.replace("$", ""))
+        amount = float(PRICES[cheat][days][1].replace("$", ""))
     else:
-        price_str = PRICES[cheat][days].replace(" грн", "")
-        amount = round(int(price_str) / 43, 2)
+        price = int(PRICES[cheat][days].replace(" грн", ""))
+        amount = round(price / 43, 2)
     
     invoice = await create_crypto_invoice(call.from_user.id, amount, days, cheat)
-    
     if not invoice:
-        await call.message.edit_text("❌ Ошибка создания платежа", reply_markup=get_back_button("start"))
+        await call.message.edit_text("❌ Ошибка создания платежа")
         return
     
-    cursor.execute('''
-        INSERT INTO crypto_payments (payment_id, user_id, amount, days, product, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
-    ''', (str(invoice["invoice_id"]), call.from_user.id, amount, days, cheat, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+    cursor.execute('INSERT INTO crypto_payments (payment_id, user_id, amount, days, product, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+                  (str(invoice["invoice_id"]), call.from_user.id, amount, days, cheat, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
     conn.commit()
     
-    cap = (f"<tg-emoji emoji-id=\"5390816416184174666\">💎</tg-emoji> <b>Оплата через CryptoBot</b>\n\n"
-           f"💰 <b>Сумма:</b> {amount}$\n"
-           f"📅 <b>Тариф:</b> {days} дней")
+    text = (f"{e('5390816416184174666', '💎')} <b>Оплата через CryptoBot</b>\n\n"
+            f"💰 <b>Сумма:</b> {amount}$\n"
+            f"📅 <b>Тариф:</b> {days} дней")
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [url_btn("💎 Оплатить", invoice["pay_url"])],
-        [btn("Проверить оплату", f"check_crypto_{invoice['invoice_id']}", "6039486778597970865")],
-        [btn("Отмена", "start", "5208480322731137426")]
+        [ub("💎 Оплатить", invoice["pay_url"])],
+        [ib("Проверить оплату", f"check_crypto_{invoice['invoice_id']}", "6039486778597970865")],
+        [ib("Отмена", "start", "5208480322731137426")]
     ])
-    
-    await call.message.edit_media(
-        media=InputMediaPhoto(media=CHEAT_PHOTOS[cheat], caption=cap),
-        reply_markup=kb
-    )
+    await call.message.edit_media(media=InputMediaPhoto(media=CHEAT_PHOTOS[cheat], caption=text), reply_markup=kb)
 
-# -------# ---------- ПРОВЕРКА CRYPTO ПЛАТЕЖА ----------
+# ---------- ПРОВЕРКА CRYPTO ПЛАТЕЖА ----------
 @dp.callback_query(F.data.startswith("check_crypto_"))
 async def check_crypto_payment_callback(call: types.CallbackQuery):
     await call.answer()
     payment_id = int(call.data.replace("check_crypto_", ""))
+    payment = await check_crypto_payment(payment_id)
     
-    payment_info = await check_crypto_payment(payment_id)
-    
-    if payment_info and payment_info.get("status") == "paid":
-        cursor.execute('SELECT product, days FROM crypto_payments WHERE payment_id = ?', (str(payment_id),))
-        res = cursor.fetchone()
-        
+    if payment and payment.get("status") == "paid":
+        res = cursor.execute('SELECT product, days FROM crypto_payments WHERE payment_id = ?', (str(payment_id),)).fetchone()
         if res:
             product, days = res
-            target_id = call.from_user.id
-            expiry_date = (datetime.now() + timedelta(days=int(days))).strftime('%Y-%m-%d %H:%M:%S')
-            
-            cursor.execute('''
-                UPDATE users SET expiry_date = ?, product_name = ? WHERE user_id = ?
-            ''', (expiry_date, CHEAT_NAMES[product], target_id))
+            expiry = (datetime.now() + timedelta(days=int(days))).strftime('%Y-%m-%d %H:%M:%S')
+            cursor.execute('UPDATE users SET expiry_date = ?, product_name = ? WHERE user_id = ?', (expiry, CHEAT_NAMES[product], call.from_user.id))
             cursor.execute('UPDATE crypto_payments SET status = "paid" WHERE payment_id = ?', (str(payment_id),))
             conn.commit()
-            
-            await call.message.edit_text(
-                f"<tg-emoji emoji-id=\"5938252440926163756\">✅</tg-emoji> <b>Оплата подтверждена!</b>\n\n📅 Подписка до {expiry_date}",
-                reply_markup=get_back_button("start")
-            )
-            
-            await bot.send_message(
-                ADMIN_ID,
-                f"<tg-emoji emoji-id=\"6039486778597970865\">💰</tg-emoji> <b>Новый крипто-платёж</b>\n👤 {target_id}\n📅 {days} дней\n💎 {CHEAT_NAMES[product]}"
-            )
+            await call.message.edit_text(f"{e('5938252440926163756', '✅')} <b>Оплата подтверждена!</b>\n\n📅 Подписка до {expiry}", reply_markup=get_back_button("start"))
+            await bot.send_message(ADMIN_ID, f"{e('6039486778597970865', '💰')} <b>Новый крипто-платёж</b>\n👤 {call.from_user.id}\n📅 {days} дней\n💎 {CHEAT_NAMES[product]}")
     else:
         await call.answer("⏳ Платёж ещё не подтверждён", show_alert=True)
+
+def get_back_button(target: str):
+    return InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="⬅️ Назад", callback_data=target)]])
 
 # ---------- ОТПРАВКА ЧЕКА ----------
 @dp.callback_query(F.data == "send_receipt")
@@ -551,7 +455,7 @@ async def receipt_callback(call: types.CallbackQuery, state: FSMContext):
         await state.clear()
         return
     
-    await call.message.answer(f"<tg-emoji emoji-id=\"5769126056262898415\">📸</tg-emoji> <b>Отправьте скриншот чека</b> (одним фото)")
+    await call.message.answer(f"{e('5769126056262898415', '📸')} <b>Отправьте скриншот чека</b> (одним фото)")
     await state.set_state(OrderState.waiting_for_receipt)
 
 @dp.message(OrderState.waiting_for_receipt, F.photo)
@@ -564,20 +468,20 @@ async def handle_receipt(message: types.Message, state: FSMContext):
         return
     
     adm_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [btn("Одобрить", f"adm_ok_{message.from_user.id}_{data['product']}_{data['days']}", "5208657859499282838")],
-        [btn("Отклонить", f"adm_no_{message.from_user.id}", "5208480322731137426")]
+        [ib("Одобрить", f"adm_ok_{message.from_user.id}_{data['product']}_{data['days']}", "5208657859499282838")],
+        [ib("Отклонить", f"adm_no_{message.from_user.id}", "5208480322731137426")]
     ])
     
     await bot.send_photo(
         ADMIN_ID,
         message.photo[-1].file_id,
-        caption=f"<tg-emoji emoji-id=\"6039486778597970865\">🔔</tg-emoji> <b>Чек от {message.from_user.id}</b>\n"
+        caption=f"{e('6039486778597970865', '🔔')} <b>Чек от {message.from_user.id}</b>\n"
                 f"📦 Товар: {CHEAT_NAMES[data['product']]}\n"
                 f"📅 Тариф: {data['days']} дней",
         reply_markup=adm_kb
     )
     
-    await message.answer(f"<tg-emoji emoji-id=\"5938252440926163756\">✅</tg-emoji> Чек отправлен администратору! Ожидайте подтверждения.")
+    await message.answer(f"{e('5938252440926163756', '✅')} Чек отправлен администратору! Ожидайте подтверждения.")
     await state.clear()
 
 # ---------- РЕШЕНИЕ АДМИНА ----------
@@ -594,12 +498,12 @@ async def admin_decision(call: types.CallbackQuery, state: FSMContext):
             product=parts[3],
             days=parts[4]
         )
-        await call.message.answer(f"<tg-emoji emoji-id=\"6037373985400819577\">📎</tg-emoji> <b>Отправьте файл с читом</b> (или текст с инструкцией)")
+        await call.message.answer(f"{e('6037373985400819577', '📎')} <b>Отправьте файл с читом</b> (или текст с инструкцией)")
         await state.set_state(OrderState.waiting_for_admin_file)
         await call.answer("✅ Одобрено")
         await call.message.delete()
     else:
-        await bot.send_message(int(parts[2]), f"<tg-emoji emoji-id=\"5208480322731137426\">❌</tg-emoji> Ваша оплата была отклонена администратором.")
+        await bot.send_message(int(parts[2]), f"{e('5208480322731137426', '❌')} Ваша оплата была отклонена администратором.")
         await call.message.delete()
         await call.answer("❌ Отклонено")
 
@@ -622,7 +526,7 @@ async def admin_file_input(message: types.Message, state: FSMContext):
         file_text = message.text
     
     await state.update_data(file=file_id, file_text=file_text)
-    await message.answer(f"<tg-emoji emoji-id=\"6048733173171359488\">🔑</tg-emoji> <b>Введите ключ активации</b>")
+    await message.answer(f"{e('6048733173171359488', '🔑')} <b>Введите ключ активации</b>")
     await state.set_state(OrderState.waiting_for_admin_key)
 
 # ---------- КЛЮЧ ОТ АДМИНА ----------
@@ -645,20 +549,20 @@ async def admin_key_input(message: types.Message, state: FSMContext):
     ''', (target_id, expiry_date, product_name, target_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), message.text))
     conn.commit()
     
-    text = (f"<tg-emoji emoji-id=\"5938252440926163756\">✅</tg-emoji> <b>Заказ активирован!</b>\n\n"
-            f"<tg-emoji emoji-id=\"5208474816583063829\">📅</tg-emoji> <b>Действует до:</b> {expiry_date}\n"
-            f"<tg-emoji emoji-id=\"6048733173171359488\">🔑</tg-emoji> <b>Ключ:</b> <code>{message.text}</code>\n\n"
-            f"<tg-emoji emoji-id=\"5413879192267805083\">💜</tg-emoji> Благодарим за покупку в Plutonium Store!")
+    text = (f"{e('5938252440926163756', '✅')} <b>Заказ активирован!</b>\n\n"
+            f"{e('5208474816583063829', '📅')} <b>Действует до:</b> {expiry_date}\n"
+            f"{e('6048733173171359488', '🔑')} <b>Ключ:</b> <code>{message.text}</code>\n\n"
+            f"{e('5413879192267805083', '💜')} Благодарим за покупку в Plutonium Store!")
     
     try:
         if data.get('file'):
             await bot.send_document(target_id, data['file'], caption=text)
         elif data.get('file_text'):
-            await bot.send_message(target_id, text + f"\n\n<tg-emoji emoji-id=\"6039348811363520645\">📝</tg-emoji> {data['file_text']}")
+            await bot.send_message(target_id, text + f"\n\n{e('6039348811363520645', '📝')} {data['file_text']}")
         else:
             await bot.send_message(target_id, text)
         
-        await message.answer(f"<tg-emoji emoji-id=\"5208422125924275090\">✅</tg-emoji> Готово! Товар выдан пользователю.")
+        await message.answer(f"{e('5208422125924275090', '✅')} Готово! Товар выдан пользователю.")
     except Exception as e:
         await message.answer(f"❌ Ошибка при отправке: {e}")
     
@@ -680,7 +584,7 @@ async def broadcast_start(message: types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
     
-    await message.answer(f"<tg-emoji emoji-id=\"5208846279714560254\">📢</tg-emoji> <b>Отправь сообщение для рассылки</b> (текст, фото, видео или документ)")
+    await message.answer(f"{e('5208846279714560254', '📢')} <b>Отправь сообщение для рассылки</b> (текст, фото, видео или документ)")
     await state.set_state(OrderState.broadcast_text)
 
 @dp.message(OrderState.broadcast_text)
@@ -716,7 +620,7 @@ async def broadcast_send(message: types.Message, state: FSMContext):
         except:
             pass
     
-    await status.edit_text(f"<tg-emoji emoji-id=\"5938252440926163756\">✅</tg-emoji> Рассылка завершена!\n✅ Успешно: {success}\n❌ Ошибок: {len(users)-success}")
+    await status.edit_text(f"{e('5938252440926163756', '✅')} Рассылка завершена!\n✅ Успешно: {success}\n❌ Ошибок: {len(users)-success}")
     await state.clear()
 
 @dp.message(Command("ban"))
