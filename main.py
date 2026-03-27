@@ -24,6 +24,54 @@ CRYPTO_API = "https://pay.crypt.bot/api"
 bot = Bot(token=TOKEN, default=DefaultBotProperties(parse_mode=ParseMode.HTML))
 dp = Dispatcher()
 
+# --- ID ЭМОДЗИ TG PREMIUM ---
+EMOJI = {
+    "fire": "5339472242529045815",
+    "status": "5208846279714560254",
+    "welcome": "5208657859499282838",
+    "buy_key": "5156877291397055163",
+    "profile": "5904630315946611415",
+    "id": "6032693626394382504",
+    "name": "5879770735999717115",
+    "username": "5814247475141153332",
+    "product": "6041730074376410123",
+    "time_left": "5891211339170326418",
+    "reviews": "5938252440926163756",
+    "channel_link": "6028171274939797252",
+    "status_icon": "6030445631921721471",
+    "support": "5208539876747662991",
+    "games": "5938413566624272793",
+    "standoff": "5393134637667094112",
+    "pubg": "6073605466221451561",
+    "plutonium": "5339472242529045815",
+    "days_7": "5393330385096575682",
+    "days_30": "5393330385096575682",
+    "days_90": "5393330385096575682",
+    "ukr_bank": "5393576224729633040",
+    "crypto": "5390816416184174666",
+    "card": "5890848474563352982",
+    "comment": "5891105528356018797",
+    "screenshot": "5769126056262898415",
+    "send_receipt": "5258205968025525531",
+    "paid": "5208657859499282838",
+    "cancel": "5208480322731137426",
+    "check": "6039486778597970865",
+    "approve": "5208657859499282838",
+    "reject": "5208480322731137426",
+    "success": "5938252440926163756",
+    "file": "6037373985400819577",
+    "key": "6048733173171359488",
+    "done": "5208422125924275090",
+    "order": "5208474816583063829",
+    "thank": "5413879192267805083",
+    "heart": "6039348811363520645",
+    "zolo": "5451653043089070124",
+    "impact": "5276079251089547977",
+    "king": "6172520285330214110",
+    "inferno": "5296273418516187626",
+    "zolo_cis": "5451841459009379088"
+}
+
 # --- ЦЕНЫ ---
 PRICES = {
     "so2": {"7": ("150 грн", "3.5$"), "30": ("300 грн", "7$"), "90": ("700 грн", "16.5$")},
@@ -70,7 +118,8 @@ cursor.execute('''
         product_name TEXT,
         subscribed_at TEXT,
         banned INTEGER DEFAULT 0,
-        ban_reason TEXT
+        ban_reason TEXT,
+        last_key TEXT
     )
 ''')
 
@@ -97,18 +146,42 @@ class OrderState(StatesGroup):
     waiting_for_admin_key = State()
     broadcast_text = State()
 
-# --- КЛАВИАТУРЫ ---
+# --- ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ---
+def emoji_tag(emoji_id: str, char: str = "●") -> str:
+    return f'<tg-emoji emoji-id="{emoji_id}">{char}</tg-emoji>'
+
 def get_main_keyboard():
-    # Посилання на твій Mini App
-    WEBAPP_URL = "https://rocket-online.vercel.app"
-    
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔑 Купить ключ", callback_data="buy_key"), 
-         InlineKeyboardButton(text="👤 Мой профиль", callback_data="profile")],
-        [InlineKeyboardButton(text="💬 Наши отзывы", callback_data="show_reviews"), 
-         InlineKeyboardButton(text="📊 Статус ПО", callback_data="check_status")],
-        [InlineKeyboardButton(text="🛒 Plutonium Store", web_app=WebAppInfo(url=WEBAPP_URL))],  # ← НОВА КНОПКА
-        [InlineKeyboardButton(text="🆘 Техподдержка", url="https://t.me/IllyaGarant")]
+        [InlineKeyboardButton(
+            text=f"{emoji_tag(EMOJI['buy_key'], '🔑')} Купить ключ", 
+            callback_data="buy_key",
+            icon_custom_emoji_id=EMOJI['buy_key']
+        ), 
+         InlineKeyboardButton(
+             text=f"{emoji_tag(EMOJI['profile'], '👤')} Мой профиль", 
+             callback_data="profile",
+             icon_custom_emoji_id=EMOJI['profile']
+         )],
+        [InlineKeyboardButton(
+            text=f"{emoji_tag(EMOJI['reviews'], '💬')} Наши отзывы", 
+            callback_data="show_reviews",
+            icon_custom_emoji_id=EMOJI['reviews']
+        ), 
+         InlineKeyboardButton(
+             text=f"{emoji_tag(EMOJI['status'], '📊')} Статус ПО", 
+             callback_data="check_status",
+             icon_custom_emoji_id=EMOJI['status']
+         )],
+        [InlineKeyboardButton(
+            text=f"{emoji_tag(EMOJI['plutonium'], '🛒')} Plutonium Store", 
+            web_app=WebAppInfo(url=WEBAPP_URL),
+            icon_custom_emoji_id=EMOJI['plutonium']
+         )],
+        [InlineKeyboardButton(
+            text=f"{emoji_tag(EMOJI['support'], '🆘')} Техподдержка", 
+            url="https://t.me/IllyaGarant",
+            icon_custom_emoji_id=EMOJI['support']
+        )]
     ])
     return kb
 
@@ -116,6 +189,7 @@ def get_back_button(target: str):
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="⬅️ Назад", callback_data=target)]
     ])
+
 # --- ФУНКЦИИ CRYPTOBOT ---
 async def create_crypto_invoice(user_id, amount, days, product):
     url = f"{CRYPTO_API}/createInvoice"
@@ -179,7 +253,11 @@ async def start_command(message: types.Message, state: FSMContext):
     
     cursor.execute('SELECT value FROM settings WHERE key="cheat_status"')
     status = cursor.fetchone()[0]
-    caption = f"🔥 <b>Plutonium Store</b>\n\n📈 Статус ПО: {status}\n\nДобро пожаловать!"
+    
+    caption = (f"{emoji_tag(EMOJI['fire'], '🔥')} <b>Plutonium Store</b>\n\n"
+               f"{emoji_tag(EMOJI['status'], '📈')} Статус ПО: {status}\n\n"
+               f"{emoji_tag(EMOJI['welcome'], '👋')} Добро пожаловать!")
+    
     await message.answer_photo(
         photo="https://files.catbox.moe/916cwt.png", 
         caption=caption, 
@@ -198,13 +276,17 @@ async def start_callback(call: types.CallbackQuery, state: FSMContext):
     
     cursor.execute('SELECT value FROM settings WHERE key="cheat_status"')
     status = cursor.fetchone()[0]
-    caption = f"🔥 <b>Plutonium Store</b>\n\n📈 Статус ПО: {status}\n\nДобро пожаловать!"
+    
+    caption = (f"{emoji_tag(EMOJI['fire'], '🔥')} <b>Plutonium Store</b>\n\n"
+               f"{emoji_tag(EMOJI['status'], '📈')} Статус ПО: {status}\n\n"
+               f"{emoji_tag(EMOJI['welcome'], '👋')} Добро пожаловать!")
+    
     await call.message.edit_media(
         media=InputMediaPhoto(media="https://files.catbox.moe/916cwt.png", caption=caption), 
         reply_markup=get_main_keyboard()
     )
 
-# ---------- ПРОФИЛЬ (ИСПРАВЛЕН) ----------
+# ---------- ПРОФИЛЬ ----------
 @dp.callback_query(F.data == "profile")
 async def profile_callback(call: types.CallbackQuery):
     await call.answer()
@@ -215,11 +297,12 @@ async def profile_callback(call: types.CallbackQuery):
         await call.message.edit_text(f"⛔️ <b>Вы заблокированы</b>\nПричина: {reason}")
         return
     
-    cursor.execute('SELECT expiry_date, product_name FROM users WHERE user_id = ?', (user_id,))
+    cursor.execute('SELECT expiry_date, product_name, last_key FROM users WHERE user_id = ?', (user_id,))
     res = cursor.fetchone()
     
     time_left = "Нет активной подписки"
     product = "Нет"
+    last_key = ""
     
     if res and res[0] and res[0] is not None:
         try:
@@ -237,6 +320,7 @@ async def profile_callback(call: types.CallbackQuery):
                     time_left = f"{hours} ч. {minutes} мин."
                 
                 product = res[1] if res[1] else "Plutonium"
+                last_key = res[2] if res[2] else ""
             else:
                 time_left = "❌ Истекла"
                 product = res[1] if res[1] else "Plutonium"
@@ -245,12 +329,15 @@ async def profile_callback(call: types.CallbackQuery):
             time_left = "Ошибка формата"
             product = res[1] if res[1] else "Plutonium"
     
-    cap = (
-        f"👤 <b>Личный кабинет</b>\n\n"
-        f"🆔 <b>ID:</b> <code>{user_id}</code>\n"
-        f"📦 <b>Товар:</b> {product}\n"
-        f"⏳ <b>Осталось:</b> {time_left}"
-    )
+    cap = (f"{emoji_tag(EMOJI['profile'], '👤')} <b>Личный кабинет</b>\n\n"
+           f"{emoji_tag(EMOJI['id'], '🆔')} <b>ID:</b> <code>{user_id}</code>\n"
+           f"{emoji_tag(EMOJI['name'], '📛')} <b>Имя:</b> {call.from_user.first_name}\n"
+           f"{emoji_tag(EMOJI['username'], '🔖')} <b>Username:</b> @{call.from_user.username or 'Нет'}\n"
+           f"{emoji_tag(EMOJI['product'], '📦')} <b>Товар:</b> {product}\n"
+           f"{emoji_tag(EMOJI['time_left'], '⏳')} <b>Осталось:</b> {time_left}\n")
+    
+    if last_key:
+        cap += f"{emoji_tag(EMOJI['key'], '🔑')} <b>Ваш ключ:</b> <code>{last_key}</code>"
     
     await call.message.edit_media(
         media=InputMediaPhoto(media="https://files.catbox.moe/5h6fr0.png", caption=cap), 
@@ -263,8 +350,11 @@ async def check_status(call: types.CallbackQuery):
     await call.answer()
     cursor.execute('SELECT value FROM settings WHERE key="cheat_status"')
     status = cursor.fetchone()[0]
+    
+    cap = (f"{emoji_tag(EMOJI['status'], '📊')} <b>Статус ПО:</b> {status}")
+    
     await call.message.edit_media(
-        media=InputMediaPhoto(media="https://files.catbox.moe/916cwt.png", caption=f"📊 <b>Статус ПО:</b> {status}"), 
+        media=InputMediaPhoto(media="https://files.catbox.moe/916cwt.png", caption=cap), 
         reply_markup=get_back_button("start")
     )
 
@@ -273,11 +363,16 @@ async def check_status(call: types.CallbackQuery):
 async def reviews_callback(call: types.CallbackQuery):
     await call.answer()
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔗 Канал с отзывами", url="https://t.me/plutoniumrewiews")],
+        [InlineKeyboardButton(
+            text=f"{emoji_tag(EMOJI['channel_link'], '🔗')} Канал с отзывами", 
+            url="https://t.me/plutoniumrewiews",
+            icon_custom_emoji_id=EMOJI['channel_link']
+        )],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="start")]
     ])
+    cap = f"{emoji_tag(EMOJI['reviews'], '⭐')} <b>Наши отзывы</b>"
     await call.message.edit_media(
-        media=InputMediaPhoto(media="https://files.catbox.moe/3z96th.png", caption="⭐ <b>Наши отзывы</b>"), 
+        media=InputMediaPhoto(media="https://files.catbox.moe/3z96th.png", caption=cap), 
         reply_markup=kb
     )
 
@@ -286,13 +381,21 @@ async def reviews_callback(call: types.CallbackQuery):
 async def buy_callback(call: types.CallbackQuery):
     await call.answer()
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔫 Standoff 2", callback_data="game_so2")],
-        [InlineKeyboardButton(text="🎯 PUBG Mobile", callback_data="game_pubg")],
+        [InlineKeyboardButton(
+            text=f"{emoji_tag(EMOJI['standoff'], '🔫')} Standoff 2", 
+            callback_data="game_so2",
+            icon_custom_emoji_id=EMOJI['standoff']
+        )],
+        [InlineKeyboardButton(
+            text=f"{emoji_tag(EMOJI['pubg'], '🎯')} PUBG Mobile", 
+            callback_data="game_pubg",
+            icon_custom_emoji_id=EMOJI['pubg']
+        )],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="start")]
     ])
+    cap = f"{emoji_tag(EMOJI['games'], '🎮')} <b>Выберите игру:</b>"
     await call.message.edit_media(
-        media=InputMediaPhoto(media="https://files.catbox.moe/1u2tb9.png", 
-                             caption="🎮 <b>Выберите игру:</b>"),
+        media=InputMediaPhoto(media="https://files.catbox.moe/1u2tb9.png", caption=cap),
         reply_markup=kb
     )
 
@@ -301,12 +404,17 @@ async def buy_callback(call: types.CallbackQuery):
 async def so2_menu(call: types.CallbackQuery):
     await call.answer()
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🦾 Plutonium", callback_data="cheat_so2")],
+        [InlineKeyboardButton(
+            text=f"{emoji_tag(EMOJI['plutonium'], '🦾')} Plutonium", 
+            callback_data="cheat_so2",
+            icon_custom_emoji_id=EMOJI['plutonium']
+        )],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy_key")]
     ])
+    cap = (f"{emoji_tag(EMOJI['standoff'], '⚙️')} <b>Standoff 2</b>\n"
+           f"{emoji_tag(EMOJI['games'], '🎮')} Выберите чит:")
     await call.message.edit_media(
-        media=InputMediaPhoto(media="https://files.catbox.moe/ljpeoi.png", 
-                             caption="⚙️ <b>Standoff 2</b>\nВыберите чит:"),
+        media=InputMediaPhoto(media="https://files.catbox.moe/ljpeoi.png", caption=cap),
         reply_markup=kb
     )
 
@@ -315,16 +423,36 @@ async def so2_menu(call: types.CallbackQuery):
 async def pubg_menu(call: types.CallbackQuery):
     await call.answer()
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🔥 Zolo", callback_data="cheat_zolo")],
-        [InlineKeyboardButton(text="⚡ Impact VIP", callback_data="cheat_impact")],
-        [InlineKeyboardButton(text="👑 King Mod", callback_data="cheat_king")],
-        [InlineKeyboardButton(text="💥 Inferno", callback_data="cheat_inferno")],
-        [InlineKeyboardButton(text="🎮 Zolo CIS", callback_data="cheat_zolo_cis")],
+        [InlineKeyboardButton(
+            text=f"{emoji_tag(EMOJI['zolo'], '🔥')} Zolo", 
+            callback_data="cheat_zolo",
+            icon_custom_emoji_id=EMOJI['zolo']
+        )],
+        [InlineKeyboardButton(
+            text=f"{emoji_tag(EMOJI['impact'], '⚡')} Impact VIP", 
+            callback_data="cheat_impact",
+            icon_custom_emoji_id=EMOJI['impact']
+        )],
+        [InlineKeyboardButton(
+            text=f"{emoji_tag(EMOJI['king'], '👑')} King Mod", 
+            callback_data="cheat_king",
+            icon_custom_emoji_id=EMOJI['king']
+        )],
+        [InlineKeyboardButton(
+            text=f"{emoji_tag(EMOJI['inferno'], '💥')} Inferno", 
+            callback_data="cheat_inferno",
+            icon_custom_emoji_id=EMOJI['inferno']
+        )],
+        [InlineKeyboardButton(
+            text=f"{emoji_tag(EMOJI['zolo_cis'], '🎮')} Zolo CIS", 
+            callback_data="cheat_zolo_cis",
+            icon_custom_emoji_id=EMOJI['zolo_cis']
+        )],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data="buy_key")]
     ])
+    cap = f"{emoji_tag(EMOJI['pubg'], '🎯')} <b>PUBG Mobile</b>\nВыберите чит:"
     await call.message.edit_media(
-        media=InputMediaPhoto(media="https://files.catbox.moe/1u2tb9.png",
-                             caption="🎯 <b>PUBG Mobile</b>\nВыберите чит:"),
+        media=InputMediaPhoto(media="https://files.catbox.moe/1u2tb9.png", caption=cap),
         reply_markup=kb
     )
 
@@ -347,7 +475,20 @@ async def show_cheat(call: types.CallbackQuery, cheat: str):
     buttons = []
     for days in PRICES[cheat].keys():
         days_text = f"{days} дн." if days != "1" else "1 день"
-        buttons.append([InlineKeyboardButton(text=days_text, callback_data=f"period_{cheat}_{days}")])
+        days_emoji = EMOJI['days_7']
+        if cheat == "so2":
+            if days == "7":
+                days_emoji = EMOJI['days_7']
+            elif days == "30":
+                days_emoji = EMOJI['days_30']
+            else:
+                days_emoji = EMOJI['days_90']
+        
+        buttons.append([InlineKeyboardButton(
+            text=f"{emoji_tag(days_emoji, '😎')} {days_text}", 
+            callback_data=f"period_{cheat}_{days}",
+            icon_custom_emoji_id=days_emoji
+        )])
     
     game = "game_so2" if cheat == "so2" else "game_pubg"
     buttons.append([InlineKeyboardButton(text="⬅️ Назад", callback_data=game)])
@@ -394,8 +535,16 @@ async def select_period(call: types.CallbackQuery, state: FSMContext):
     desc += "\n\n💳 <b>Выберите способ оплаты:</b>"
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🇺🇦 Укр банк", callback_data=f"bank_{cheat}_{days}")],
-        [InlineKeyboardButton(text="💎 CryptoBot", callback_data=f"crypto_{cheat}_{days}")],
+        [InlineKeyboardButton(
+            text=f"{emoji_tag(EMOJI['ukr_bank'], '🩵')} Укр Банк", 
+            callback_data=f"bank_{cheat}_{days}",
+            icon_custom_emoji_id=EMOJI['ukr_bank']
+        )],
+          [InlineKeyboardButton(
+            text=f"{emoji_tag(EMOJI['crypto'], '🦍')} CryptoBot", 
+            callback_data=f"crypto_{cheat}_{days}",
+            icon_custom_emoji_id=EMOJI['crypto']
+        )],
         [InlineKeyboardButton(text="⬅️ Назад", callback_data=f"cheat_{cheat}")]
     ])
     
@@ -420,15 +569,23 @@ async def bank_payment(call: types.CallbackQuery, state: FSMContext):
     else:
         price = PRICES[cheat][days]
     
-    cap = (f"💳 <b>Оплата банковской картой</b>\n\n"
-           f"💰 <b>Сумма:</b> {price}\n"
-           f"💳 <b>Карта:</b> <code>{CARD}</code>\n"
-           f"❗ <b>Комментарий:</b> За цифрові товари\n\n"
-           f"📸 После оплаты нажмите кнопку ниже и пришлите скриншот")
+    cap = (f"{emoji_tag(EMOJI['card'], '💳')} <b>Оплата банковской картой</b>\n\n"
+           f"{emoji_tag(EMOJI['card'], '💰')} <b>Сумма:</b> {price}\n"
+           f"{emoji_tag(EMOJI['card'], '💳')} <b>Карта:</b> <code>{CARD}</code>\n"
+           f"{emoji_tag(EMOJI['comment'], '❗')} <b>Комментарий:</b> За цифрові товари\n\n"
+           f"{emoji_tag(EMOJI['screenshot'], '📸')} После оплаты нажмите кнопку ниже и пришлите скриншот")
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Я оплатил", callback_data="send_receipt")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="start")]
+        [InlineKeyboardButton(
+            text=f"{emoji_tag(EMOJI['send_receipt'], '✅')} Я оплатил", 
+            callback_data="send_receipt",
+            icon_custom_emoji_id=EMOJI['send_receipt']
+        )],
+        [InlineKeyboardButton(
+            text=f"{emoji_tag(EMOJI['cancel'], '❌')} Отмена", 
+            callback_data="start",
+            icon_custom_emoji_id=EMOJI['cancel']
+        )]
     ])
     
     await call.message.edit_media(
@@ -463,14 +620,22 @@ async def crypto_payment(call: types.CallbackQuery, state: FSMContext):
     ''', (str(invoice["invoice_id"]), call.from_user.id, amount, days, cheat, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
     conn.commit()
     
-    cap = (f"💎 <b>Оплата через CryptoBot</b>\n\n"
+    cap = (f"{emoji_tag(EMOJI['crypto'], '💎')} <b>Оплата через CryptoBot</b>\n\n"
            f"💰 <b>Сумма:</b> {amount}$\n"
            f"📅 <b>Тариф:</b> {days} дней")
     
     kb = InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="💎 Оплатить", url=invoice["pay_url"])],
-        [InlineKeyboardButton(text="✅ Проверить оплату", callback_data=f"check_crypto_{invoice['invoice_id']}")],
-        [InlineKeyboardButton(text="❌ Отмена", callback_data="start")]
+        [InlineKeyboardButton(
+            text=f"{emoji_tag(EMOJI['check'], '✅')} Проверить оплату", 
+            callback_data=f"check_crypto_{invoice['invoice_id']}",
+            icon_custom_emoji_id=EMOJI['check']
+        )],
+        [InlineKeyboardButton(
+            text=f"{emoji_tag(EMOJI['cancel'], '❌')} Отмена", 
+            callback_data="start",
+            icon_custom_emoji_id=EMOJI['cancel']
+        )]
     ])
     
     await call.message.edit_media(
@@ -502,13 +667,13 @@ async def check_crypto_payment_callback(call: types.CallbackQuery):
             conn.commit()
             
             await call.message.edit_text(
-                f"✅ <b>Оплата подтверждена!</b>\n\n📅 Подписка до {expiry_date}",
+                f"{emoji_tag(EMOJI['success'], '✅')} <b>Оплата подтверждена!</b>\n\n📅 Подписка до {expiry_date}",
                 reply_markup=get_back_button("start")
             )
             
             await bot.send_message(
                 ADMIN_ID,
-                f"💰 <b>Новый крипто-платёж</b>\n👤 {target_id}\n📅 {days} дней\n💎 {CHEAT_NAMES[product]}"
+                f"{emoji_tag(EMOJI['check'], '💰')} <b>Новый крипто-платёж</b>\n👤 {target_id}\n📅 {days} дней\n💎 {CHEAT_NAMES[product]}"
             )
     else:
         await call.answer("⏳ Платёж ещё не подтверждён", show_alert=True)
@@ -525,7 +690,7 @@ async def receipt_callback(call: types.CallbackQuery, state: FSMContext):
         await state.clear()
         return
     
-    await call.message.answer("📸 <b>Отправьте скриншот чека</b> (одним фото)")
+    await call.message.answer(f"{emoji_tag(EMOJI['screenshot'], '📸')} <b>Отправьте скриншот чека</b> (одним фото)")
     await state.set_state(OrderState.waiting_for_receipt)
 
 @dp.message(OrderState.waiting_for_receipt, F.photo)
@@ -538,18 +703,28 @@ async def handle_receipt(message: types.Message, state: FSMContext):
         return
     
     adm_kb = InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="✅ Одобрить", callback_data=f"adm_ok_{message.from_user.id}_{data['product']}_{data['days']}")],
-        [InlineKeyboardButton(text="❌ Отклонить", callback_data=f"adm_no_{message.from_user.id}")]
+        [InlineKeyboardButton(
+            text=f"{emoji_tag(EMOJI['approve'], '✅')} Одобрить", 
+            callback_data=f"adm_ok_{message.from_user.id}_{data['product']}_{data['days']}",
+            icon_custom_emoji_id=EMOJI['approve']
+        )],
+        [InlineKeyboardButton(
+            text=f"{emoji_tag(EMOJI['reject'], '❌')} Отклонить", 
+            callback_data=f"adm_no_{message.from_user.id}",
+            icon_custom_emoji_id=EMOJI['reject']
+        )]
     ])
     
     await bot.send_photo(
         ADMIN_ID,
         message.photo[-1].file_id,
-        caption=f"🔔 <b>Чек от {message.from_user.id}</b>\nТовар: {CHEAT_NAMES[data['product']]}\nТариф: {data['days']} дней",
+        caption=f"{emoji_tag(EMOJI['check'], '🔔')} <b>Чек от {message.from_user.id}</b>\n"
+                f"📦 Товар: {CHEAT_NAMES[data['product']]}\n"
+                f"📅 Тариф: {data['days']} дней",
         reply_markup=adm_kb
     )
     
-    await message.answer("✅ Чек отправлен администратору! Ожидайте подтверждения.")
+    await message.answer(f"{emoji_tag(EMOJI['success'], '✅')} Чек отправлен администратору! Ожидайте подтверждения.")
     await state.clear()
 
 # ---------- РЕШЕНИЕ АДМИНА ----------
@@ -566,12 +741,12 @@ async def admin_decision(call: types.CallbackQuery, state: FSMContext):
             product=parts[3],
             days=parts[4]
         )
-        await call.message.answer("📎 <b>Отправьте файл с читом</b> (или текст с инструкцией)")
+        await call.message.answer(f"{emoji_tag(EMOJI['file'], '📎')} <b>Отправьте файл с читом</b> (или текст с инструкцией)")
         await state.set_state(OrderState.waiting_for_admin_file)
         await call.answer("✅ Одобрено")
         await call.message.delete()
     else:
-        await bot.send_message(int(parts[2]), "❌ Ваша оплата была отклонена администратором.")
+        await bot.send_message(int(parts[2]), f"{emoji_tag(EMOJI['reject'], '❌')} Ваша оплата была отклонена администратором.")
         await call.message.delete()
         await call.answer("❌ Отклонено")
 
@@ -594,7 +769,7 @@ async def admin_file_input(message: types.Message, state: FSMContext):
         file_text = message.text
     
     await state.update_data(file=file_id, file_text=file_text)
-    await message.answer("🔑 <b>Введите ключ активации</b>")
+    await message.answer(f"{emoji_tag(EMOJI['key'], '🔑')} <b>Введите ключ активации</b>")
     await state.set_state(OrderState.waiting_for_admin_key)
 
 # ---------- КЛЮЧ ОТ АДМИНА ----------
@@ -609,29 +784,28 @@ async def admin_key_input(message: types.Message, state: FSMContext):
     
     expiry_date = (datetime.now() + timedelta(days=days)).strftime('%Y-%m-%d %H:%M:%S')
     
-    # Получаем правильное название товара
     product_name = CHEAT_NAMES.get(data['product'], "Plutonium")
     
     cursor.execute('''
-        INSERT OR REPLACE INTO users (user_id, expiry_date, product_name, subscribed_at, banned) 
-        VALUES (?, ?, ?, COALESCE((SELECT subscribed_at FROM users WHERE user_id = ?), ?), 0)
-    ''', (target_id, expiry_date, product_name, target_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S')))
+        INSERT OR REPLACE INTO users (user_id, expiry_date, product_name, subscribed_at, banned, last_key) 
+        VALUES (?, ?, ?, COALESCE((SELECT subscribed_at FROM users WHERE user_id = ?), ?), 0, ?)
+    ''', (target_id, expiry_date, product_name, target_id, datetime.now().strftime('%Y-%m-%d %H:%M:%S'), message.text))
     conn.commit()
     
-    text = (f"✅ <b>Заказ активирован!</b>\n\n"
-            f"📅 <b>Действует до:</b> {expiry_date}\n"
-            f"🔑 <b>Ключ:</b> <code>{message.text}</code>\n\n"
-            f"Благодарим за покупку в Plutonium Store!")
+    text = (f"{emoji_tag(EMOJI['success'], '✅')} <b>Заказ активирован!</b>\n\n"
+            f"{emoji_tag(EMOJI['order'], '📅')} <b>Действует до:</b> {expiry_date}\n"
+            f"{emoji_tag(EMOJI['key'], '🔑')} <b>Ключ:</b> <code>{message.text}</code>\n\n"
+            f"{emoji_tag(EMOJI['thank'], '💜')} Благодарим за покупку в Plutonium Store!")
     
     try:
         if data.get('file'):
             await bot.send_document(target_id, data['file'], caption=text)
         elif data.get('file_text'):
-            await bot.send_message(target_id, text + f"\n\n📝 {data['file_text']}")
+            await bot.send_message(target_id, text + f"\n\n{emoji_tag(EMOJI['heart'], '📝')} {data['file_text']}")
         else:
             await bot.send_message(target_id, text)
         
-        await message.answer("✅ Готово! Товар выдан пользователю.")
+        await message.answer(f"{emoji_tag(EMOJI['done'], '✅')} Готово! Товар выдан пользователю.")
     except Exception as e:
         await message.answer(f"❌ Ошибка при отправке: {e}")
     
@@ -653,7 +827,7 @@ async def broadcast_start(message: types.Message, state: FSMContext):
     if message.from_user.id != ADMIN_ID:
         return
     
-    await message.answer("📢 <b>Отправь сообщение для рассылки</b> (текст, фото, видео или документ)")
+    await message.answer(f"{emoji_tag(EMOJI['status'], '📢')} <b>Отправь сообщение для рассылки</b> (текст, фото, видео или документ)")
     await state.set_state(OrderState.broadcast_text)
 
 @dp.message(OrderState.broadcast_text)
@@ -689,7 +863,7 @@ async def broadcast_send(message: types.Message, state: FSMContext):
         except:
             pass
     
-    await status.edit_text(f"✅ Рассылка завершена!\n✅ Успешно: {success}\n❌ Ошибок: {len(users)-success}")
+    await status.edit_text(f"{emoji_tag(EMOJI['success'], '✅')} Рассылка завершена!\n✅ Успешно: {success}\n❌ Ошибок: {len(users)-success}")
     await state.clear()
 
 @dp.message(Command("ban"))
